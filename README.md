@@ -21,6 +21,41 @@ AI 에이전트 ── flutter-mobile-qa-mcp ─┬─ mobile-mcp      ── �
 
 ---
 
+## 빠른 시작 — 어떻게 부르나
+
+**도구(`qa_*`)를 직접 호출할 필요는 없습니다.** 에이전트에게 말로 요청하면 필요한 도구를 골라 부릅니다.
+기기를 조작하기 전에는 에이전트가 무엇을 할지 먼저 알리고 확인받습니다.
+
+### 1) 말로 요청 (가장 쉬움)
+| 하고 싶은 것 | 이렇게 말하기 |
+|---|---|
+| 시나리오 만들기 | "투두 수정 기능 QA 시나리오 짜줘" |
+| 시나리오 실행 | "qa/scenarios/todo-002.md 실행해줘" |
+| 둘러보며 문제 찾기 | "마이 탭 돌아다니면서 깨진 텍스트 있는지 봐줘. 값은 바꾸지 말고" |
+| 결과 정리 | "QA 결과 정리해줘, 출시 판단용으로" |
+| 끝내기 | "QA 끝났으니 정리해줘" → `qa_finish` (폰의 'Automation Running' 해제) |
+
+### 2) `/` 명령 (정해진 절차대로)
+입력창에 `/` 를 치고 `flutter-mobile-qa` 를 찾으면 프롬프트 4개가 나옵니다. 고르면 필요한 값을 묻습니다.
+
+| 명령 | 입력 값 (굵게 = 필수) | 예 |
+|---|---|---|
+| `/mcp__flutter-mobile-qa__plan_qa` | **feature**, depth(smoke/standard/deep), source | `투두 수정`, `standard` |
+| `/mcp__flutter-mobile-qa__run_qa` | **scenario**, logFile, allowDanger(yes) | `qa/scenarios/todo-002.md`, `/tmp/qa_run.log` |
+| `/mcp__flutter-mobile-qa__explore_qa` | **area**, focus, logFile | `마이 탭 전체`, `깨진 텍스트` |
+| `/mcp__flutter-mobile-qa__report_qa` | **scenarios**, audience | `qa/scenarios`, `출시 판단` |
+
+> `/` 목록에는 프롬프트만 나옵니다. 도구 목록은 `/mcp` → `flutter-mobile-qa` → **View tools** 에서 확인(12개).
+> 서버를 업데이트했는데 새 도구가 안 보이면 `/reload-plugins` 또는 `/mcp` 에서 **Reconnect**.
+
+### 3) 실행 전에 앱 띄우기 (글자 입력이 있는 QA)
+```bash
+flutter run -t lib/entry/entry_dev_driver.dart -d <기기> --print-dtd > /tmp/qa_run.log 2>&1
+```
+이 로그 경로를 `run_qa` 의 `logFile` 로 주거나, 말로 "앱은 떠 있어, 로그는 /tmp/qa_run.log" 라고 알려 주면 됩니다. 준비 전체는 [2장](#2-준비).
+
+---
+
 ## 목차
 1. [무엇이 되고 무엇이 안 되나](#1-무엇이-되고-무엇이-안-되나)
 2. [준비](#2-준비)
