@@ -116,12 +116,12 @@ async function driver(args: Record<string, unknown>): Promise<string> {
 }
 
 // ---------------------------------------------------------------- server
-const server = new McpServer({ name: "flutter-mobile-qa", version: "0.3.0" }, { instructions: SERVER_INSTRUCTIONS });
+const server = new McpServer({ name: "flutter-mobile-qa", version: "0.4.0" }, { instructions: SERVER_INSTRUCTIONS });
 registerGuidance(server);
 
 server.tool(
   "qa_connect",
-  "QA 세션 준비. 기기를 고르고, Flutter 앱의 DTD(ws://…)에 연결해 flutter_driver 프레임 동기화를 끈다(계속 움직이는 화면에서 타임아웃 방지). dtdUri 를 주거나, `flutter run --print-dtd` 로그 파일 경로(logFile)를 주면 거기서 찾는다.",
+  "QA 세션 준비. 기기를 고르고, (Flutter 앱이면) DTD(ws://…)에 연결해 flutter_driver 프레임 동기화를 끈다(계속 움직이는 화면에서 타임아웃 방지). dtdUri 를 주거나, `flutter run --print-dtd` 로그 파일 경로(logFile)를 주면 거기서 찾는다.",
   { dtdUri: z.string().optional(), logFile: z.string().optional(), device: z.string().optional() },
   async ({ dtdUri, logFile, device: dev }) => {
     if (dev) deviceId = dev;
@@ -137,7 +137,7 @@ server.tool(
       if (dartConnected) await driver({ command: "set_frame_sync", enabled: "false" });
       lines.push(dartConnected ? `Dart 연결: ${uri} (frame sync off)` : `Dart 연결 실패: ${r.slice(0, 200)}`);
     } else {
-      lines.push("Dart 미연결 — 글자 입력(qa_type)·위젯 기반 탭 대체가 불가. `flutter run --print-dtd` 로그를 logFile 로 주세요.");
+      lines.push("Dart 미연결 — 네이티브 앱이면 정상(모든 도구가 접근성·기기 키보드로 동작). Flutter 앱이면 글자 입력·위젯 기반 탭 대체를 위해 `flutter run --print-dtd` 로그를 logFile 로 주세요.");
     }
     return ok(lines.join("\n"));
   },
@@ -198,21 +198,36 @@ server.tool(
 
 server.tool(
   "qa_type",
-  "입력칸에 글자를 넣는다: field(입력칸의 라벨·힌트·현재 값)로 찾아 탭해 포커스 → Dart enter_text → 값이 들어갔는지 확인. Dart 연결(qa_connect) 필요.",
+  "입력칸에 글자를 넣는다: field(입력칸의 라벨·힌트·현재 값)로 찾아 탭해 포커스 → 입력 → 값이 들어갔는지 확인. Dart 연결이 있으면 Dart enter_text(Flutter — 실기기 iOS 는 Flutter 입력칸에 키보드가 안 떠서 필수), 없으면 기기 키보드 입력(네이티브 앱).",
   { field: z.string(), text: z.string() },
   async ({ field, text }) => {
-    if (!(await ensureDart())) return fail("Dart 미연결 — qa_connect 먼저");
     const els = await screen();
-    const el = els.find((e) => /TextField|TextView|SearchField/.test(e.type) && (norm(e.label).includes(norm(field)) || norm(e.value).includes(norm(field)))) ?? find(els, field, false);
+    const el =
+      els.find(
+        (e) =>
+          /TextField|TextView|SearchField|EditText/.test(e.type) &&
+          (norm(e.label).includes(norm(field)) || norm(e.value).includes(norm(field))),
+      ) ?? find(els, field, false);
     if (!el) return fail(`입력칸 "${field}" 를 찾지 못함\n${summarize(els, 30)}`);
     await m("mobile_click_on_screen_at_coordinates", { x: el.x + Math.min(el.w >> 2, 60), y: el.y + (el.h >> 1) });
     await sleep(1000);
-    const r = await driver({ command: "enter_text", text });
-    if (/isError":true/.test(r)) return fail(`enter_text 실패: ${r.slice(0, 200)}`);
+    let via: string;
+    if (await ensureDart()) {
+      const r = await driver({ command: "enter_text", text });
+      if (/isError":true/.test(r)) return fail(`enter_text 실패: ${r.slice(0, 200)}`);
+      via = "Dart enter_text";
+    } else {
+      await m("mobile_type_keys", { text, submit: false });
+      via = "기기 키보드";
+    }
     await sleep(800);
     const after = await screen();
     const got = after.find((e) => norm(e.value).includes(norm(text)) || norm(e.label).includes(norm(text)));
-    return got ? ok(`입력 완료: "${text}" (확인됨)`) : fail(`입력 후 값이 보이지 않음 — 포커스 실패 가능\n${summarize(after, 30)}`);
+    if (got) return ok(`입력 완료(${via}): "${text}" (확인됨)`);
+    const hint = (await ensureDart())
+      ? "포커스 실패 가능"
+      : "Flutter 앱이면 키보드가 안 떠서 입력이 안 들어갔을 수 있음 → flutter_driver entry + qa_connect(logFile) 필요";
+    return fail(`입력 후 값이 보이지 않음(${via}) — ${hint}\n${summarize(after, 30)}`);
   },
 );
 

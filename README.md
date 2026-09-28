@@ -1,13 +1,14 @@
 # flutter-mobile-qa-mcp
 
-Flutter 앱을 **AI 에이전트(Claude Code 등)가 실기기·시뮬레이터에서 직접 조작하며 QA** 하도록 해 주는 MCP 서버입니다.
+모바일 앱을 **AI 에이전트(Claude Code 등)가 실기기·시뮬레이터에서 직접 조작하며 QA** 하도록 해 주는 MCP 서버입니다.
+**Flutter 앱에 최적화**돼 있지만, 안쪽의 mobile-mcp 는 앱 종류와 상관없이 동작하므로 **네이티브 iOS·Android 앱에도 대부분의 기능을 쓸 수 있습니다** → [1-1. 앱 종류별 지원](#1-1-앱-종류별-지원-flutter--네이티브--기타).
 
 두 개의 MCP 서버를 안에서 띄워 묶습니다.
 
 | 내부 서버 | 역할 | 잘하는 것 |
 |---|---|---|
 | [mobile-mcp](https://github.com/mobile-next/mobile-mcp) | **앱 밖**에서 본다 (OS 접근성 트리 + 스크린샷) | 화면 텍스트 읽기, 탭·스와이프, iOS 권한 창·알림 배너·웹 로그인 같은 **앱 밖 화면** |
-| Dart MCP (`dart mcp-server`) | **앱 안**에서 본다 (실행 중인 앱의 VM 서비스) | **글자 입력**, 위젯 트리, Flutter 런타임 에러, 위젯 기준 탭 |
+| Dart MCP (`dart mcp-server`) | **앱 안**에서 본다 (실행 중인 앱의 VM 서비스) — **Flutter 앱에서만** | **글자 입력**, 위젯 트리, Flutter 런타임 에러, 위젯 기준 탭 |
 
 둘은 서로 못 하는 걸 채웁니다. 이 서버는 그 조합을 **도구 하나로 묶고, 응답을 요약**해서 호출 수와 토큰을 줄입니다.
 
@@ -16,7 +17,7 @@ AI 에이전트 ── flutter-mobile-qa-mcp ─┬─ mobile-mcp      ── �
                                        └─ dart mcp-server ── 앱 (flutter_driver · 위젯 · 에러)
 ```
 
-> 상태: 0.3.0. 두 내부 서버의 동작은 실기기(iPhone, iOS 26)와 시뮬레이터에서 검증했습니다.
+> 상태: 0.4.0. 두 내부 서버의 동작은 실기기(iPhone, iOS 26)와 시뮬레이터에서 검증했습니다.
 > 이 서버의 복합 도구 자체로 끝까지 도는 시나리오 검증은 아직입니다.
 
 ---
@@ -101,6 +102,41 @@ flutter run -t lib/entry/entry_dev_driver.dart -d <기기> --print-dtd > /tmp/qa
 - 홈 화면 위젯 실제 표시 확인, 실제 서버 푸시 수신 확인(시뮬레이터 `simctl push` 로 탭 라우팅까지는 가능)
 - 화면 녹화(실기기 iOS 에서 파일이 남지 않았음)
 
+### 1-1. 앱 종류별 지원 (Flutter · 네이티브 · 기타)
+
+위의 "되는 것"은 Flutter 기준입니다. 도구마다 어느 내부 서버를 쓰는지에 따라 앱 종류별 지원이 달라집니다.
+Dart 연결(`qa_connect` 의 `logFile`)은 Flutter 에서만 쓰고, **네이티브 앱은 Dart 없이** 기기 연결만으로 씁니다.
+
+| 도구 | 쓰는 내부 서버 | Flutter | 네이티브 iOS (UIKit·SwiftUI) | 네이티브 Android (View·Compose) |
+|---|---|---|---|---|
+| `qa_read_screen` | mobile | ✅ `Text`·Material 위젯이 잡힘 | ✅ 표준 컨트롤은 기본 접근성이 있어 대체로 더 잘 잡힘 | ✅ `contentDescription`/텍스트 기준 |
+| `qa_tap` | mobile → (Flutter면) Dart 대체 | ✅ 텍스트 버튼. 아이콘 버튼은 이름이 없으면 좌표 | ✅ `accessibilityLabel` 기준. 라벨 없는 이미지 버튼은 좌표 | ✅ `contentDescription` 기준 |
+| `qa_type` | Dart(있으면) / 기기 키보드 | ✅ **Dart 필수**(실기기 iOS 는 Flutter 입력칸에 키보드가 안 떠서 기기 입력이 안 먹음) | ✅ 기기 키보드로 입력 | ✅ 기기 키보드로 입력 |
+| `qa_expect` · `qa_swipe` · `qa_tap_xy` · `qa_screenshot` | mobile | ✅ | ✅ | ✅ |
+| `qa_dismiss_system` · `qa_launch` · `qa_finish` | mobile | ✅ | ✅ | ✅ (시스템 창 문구 규칙은 한국어 iOS 기준 — 조정 필요할 수 있음) |
+| `qa_errors` | Dart + mobile | ✅ 런타임 에러 + 크래시 | ⚠️ 크래시 목록만 | ⚠️ 크래시 목록만 |
+| `qa_connect` | mobile (+Dart) | 기기 + Dart 연결 | 기기만(`logFile` 생략) | 기기만 |
+| 위젯 트리·Flutter 위젯 기준 탭 | Dart | ✅ | ❌ | ❌ |
+
+실제 확인한 것: 네이티브 **설정 앱**(iOS)에서 앱 실행·요소 목록·탭·스와이프·홈 버튼이 정상 동작. 네이티브 앱의 글자 입력은 기기 키보드 경로로 구현돼 있으나 아직 실기기 검증 전.
+
+**기타 프레임워크**
+| 종류 | 사용 | 비고 |
+|---|---|---|
+| React Native | ✅ 네이티브와 같게(mobile 경로) | `accessibilityLabel`/`testID` 를 달면 이름으로 탭 가능 |
+| 웹뷰·하이브리드(WebView, Capacitor 등) | ⚠️ 웹 콘텐츠 내부는 요소가 잘 안 잡힘 | 스크린샷 + 좌표. 웹 영역은 Playwright 같은 웹 도구가 더 적합 |
+| 게임 엔진(Unity 등)·캔버스 렌더링 | ⚠️ 접근성 트리가 거의 없음 | 스크린샷 + 좌표만 |
+
+**네이티브 앱에서 쓰는 법**
+```text
+qa_connect()                      # logFile 없이 — 기기만 연결
+qa_launch(packageName: "com.example.app")
+qa_dismiss_system()
+qa_read_screen() → qa_tap(text: "…") → qa_type(field: "이메일", text: "…") → qa_expect(…)
+qa_finish()
+```
+워크플로 프롬프트(`plan_qa`·`run_qa`·`explore_qa`·`report_qa`)도 그대로 쓸 수 있습니다. `run_qa` 에서 `logFile` 을 비워 두면 됩니다.
+
 ### 주의할 점
 - **한 번만 뜨는 오버레이**(첫 진입 가이드 Showcase, 이벤트 팝업)가 흐름을 막습니다. 시나리오는 "좌표를 외워서 누르기"가 아니라 **"화면을 읽고 → 판단해서 누르기"** 로 짜야 안정적입니다.
 - 스와이프가 탭으로 인식돼 엉뚱한 카드가 눌릴 수 있습니다. 당겨서 새로고침은 `fromY` 를 화면 위쪽(헤더)으로.
@@ -133,7 +169,9 @@ flutter run -t lib/entry/entry_dev_driver.dart -d <기기> --print-dtd > /tmp/qa
 ### Android
 - `adb`(Android platform-tools): `brew install --cask android-platform-tools`, 에뮬레이터 또는 USB 디버깅 켠 기기
 
-### 앱 쪽 준비 (글자 입력·위젯 기반 탭을 쓰려면)
+### 앱 쪽 준비 — Flutter 앱만 (글자 입력·위젯 기반 탭을 쓰려면)
+> 네이티브 앱은 이 절이 필요 없습니다. 디버그/QA 빌드를 기기에 설치해 두기만 하면 됩니다.
+
 flutter_driver 확장을 켠 **QA 전용 진입점**을 하나 둡니다. 스토어 빌드에는 쓰지 않습니다.
 
 ```yaml
@@ -276,11 +314,11 @@ xcrun simctl openurl <udid> 'myscheme://open?…'
 
 | 도구 | 인자 | 동작 |
 |---|---|---|
-| `qa_connect` | `logFile?`, `dtdUri?`, `device?` | 기기 선택. DTD 연결 후 `set_frame_sync false`. Dart 없이도 동작하지만 `qa_type`·위젯 대체 탭은 불가 |
+| `qa_connect` | `logFile?`, `dtdUri?`, `device?` | 기기 선택. (Flutter) DTD 연결 후 `set_frame_sync false`. 네이티브 앱은 `logFile` 없이 호출 |
 | `qa_read_screen` | `filter?`, `limit?`(기본 60) | `[종류]텍스트 = 값 (비활성) @x,y` 형식 요약. 중첩 중복 제거, 상태바 잡음 제거 |
 | `qa_tap` | `text`, `exact?`, `allowDanger?`, `waitMs?`(1500) | 접근성 이름/값 일치 → 포함 → Flutter `ByText` → `ByTooltipMessage` 순서로 찾음. 탭 후 화면 요약 |
 | `qa_tap_xy` | `x`, `y`, `waitMs?` | 좌표 탭(화면 좌표 = `qa_read_screen` 의 `@x,y` 와 같은 기준) |
-| `qa_type` | `field`, `text` | 입력칸(라벨·힌트·현재 값으로 찾음) 탭 → Dart `enter_text` → 값 확인. 실패 시 이유 반환 |
+| `qa_type` | `field`, `text` | 입력칸(라벨·힌트·현재 값으로 찾음) 탭 → 입력(Dart 연결 시 `enter_text`, 없으면 기기 키보드) → 값 확인. 실패 시 이유 반환 |
 | `qa_expect` | `text`, `state?` = present / absent / enabled / disabled | `PASS …` 또는 `FAIL …` 한 줄 |
 | `qa_dismiss_system` | 없음 | 추적 → "앱에 추적 금지 요청", 알림·로컬 네트워크 → "허용", 그 외 "닫기". 최대 5개 |
 | `qa_swipe` | `direction`, `fromY?`, `distance?` | 스와이프 후 화면 요약 |

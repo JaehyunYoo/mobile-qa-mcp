@@ -13,9 +13,9 @@ import { fileURLToPath } from "node:url";
 const GUIDES = join(dirname(fileURLToPath(import.meta.url)), "..", "guides");
 const guide = (f: string) => readFileSync(join(GUIDES, f), "utf8");
 
-export const SERVER_INSTRUCTIONS = `Flutter 앱 QA 서버. 원칙:
+export const SERVER_INSTRUCTIONS = `모바일 앱 QA 서버(Flutter 최적화, 네이티브 iOS/Android 앱도 지원 — 네이티브는 Dart 연결 없이 접근성·기기 키보드로 동작). 원칙:
 1) 루프: qa_read_screen 으로 읽고 → 판단 → qa_tap/qa_type 으로 조작 → qa_expect 로 검증. 좌표를 외워서 누르지 말 것(한 번만 뜨는 가이드·팝업이 흐름을 바꾼다).
-2) 시작: qa_connect(logFile) → qa_dismiss_system. Dart 미연결이면 글자 입력 불가.
+2) 시작: qa_connect(Flutter 면 logFile) → qa_dismiss_system. Flutter 앱인데 Dart 미연결이면 글자 입력이 안 될 수 있다(실기기 iOS).
 3) 이미지는 레이아웃·색 확인에만(qa_screenshot). 나머지는 텍스트 요약으로 토큰을 아낀다.
 4) 모든 단계에 기대 결과를 두고 PASS/FAIL 을 근거와 함께 기록한다. 기대와 다르면 멈추고 스크린샷·qa_errors 로 증거를 남긴다.
 5) 데이터를 만들면 정리까지. 삭제·결제·로그아웃·탈퇴는 사용자 승인 후에만 allowDanger. 비밀번호·Face ID·개인 계정 선택은 사람에게 넘긴다.

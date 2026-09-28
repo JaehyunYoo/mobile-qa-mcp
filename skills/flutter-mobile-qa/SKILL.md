@@ -1,9 +1,9 @@
 ---
 name: flutter-mobile-qa
-description: Flutter 앱을 실기기·시뮬레이터에서 직접 조작하며 QA 할 때 사용. "QA 해줘", "시나리오 짜줘", "이 기능 테스트해줘", "화면 돌아보면서 이상한 곳 찾아줘", "QA 결과 정리해줘" 같은 요청. flutter-mobile-qa MCP 서버(qa_* 도구)가 연결돼 있어야 한다.
+description: 모바일 앱(Flutter 최적화, 네이티브 iOS·Android·React Native 도 가능)을 실기기·시뮬레이터에서 직접 조작하며 QA 할 때 사용. "QA 해줘", "시나리오 짜줘", "이 기능 테스트해줘", "화면 돌아보면서 이상한 곳 찾아줘", "QA 결과 정리해줘" 같은 요청. flutter-mobile-qa MCP 서버(qa_* 도구)가 연결돼 있어야 한다.
 ---
 
-# Flutter 모바일 QA
+# 모바일 앱 QA (Flutter 최적화)
 
 flutter-mobile-qa MCP 의 도구(qa_*)로 QA 를 진행한다. 요청을 네 가지 중 하나로 분류해 해당 절차를 따른다.
 
