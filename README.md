@@ -1,6 +1,7 @@
 # flutter-mobile-qa-mcp
 
 모바일 앱을 **AI 에이전트(Claude Code 등)가 실기기·시뮬레이터에서 직접 조작하며 QA** 하도록 해 주는 MCP 서버입니다.
+**직접 개발한 앱이든 다른 회사 앱이든** 쓸 수 있습니다(소스가 없어도 됨 — [4-6. 다른 회사 앱 QA](#4-6-다른-회사-앱-qa-블랙박스)).
 **Flutter 앱에 최적화**돼 있지만, 안쪽의 mobile-mcp 는 앱 종류와 상관없이 동작하므로 **네이티브 iOS·Android 앱에도 대부분의 기능을 쓸 수 있습니다** → [1-1. 앱 종류별 지원](#1-1-앱-종류별-지원-flutter--네이티브--기타).
 
 두 개의 MCP 서버를 안에서 띄워 묶습니다.
@@ -17,8 +18,8 @@ AI 에이전트 ── flutter-mobile-qa-mcp ─┬─ mobile-mcp      ── �
                                        └─ dart mcp-server ── 앱 (flutter_driver · 위젯 · 에러)
 ```
 
-> 상태: 0.4.0. 두 내부 서버의 동작은 실기기(iPhone, iOS 26)와 시뮬레이터에서 검증했습니다.
-> 이 서버의 복합 도구 자체로 끝까지 도는 시나리오 검증은 아직입니다.
+> 상태: 0.5.0. 두 내부 서버의 동작은 실기기(iPhone, iOS 26)와 시뮬레이터에서 검증했습니다.
+> 0.5.0 의 새 기능(환경 진단·조건 대기·ref/id 선택·실행 기록)은 오프라인 단위 확인만 했고, **실기기 검증은 아직**입니다.
 
 ---
 
@@ -34,6 +35,8 @@ AI 에이전트 ── flutter-mobile-qa-mcp ─┬─ mobile-mcp      ── �
 | 시나리오 실행 | "qa/scenarios/todo-002.md 실행해줘" |
 | 둘러보며 문제 찾기 | "마이 탭 돌아다니면서 깨진 텍스트 있는지 봐줘. 값은 바꾸지 말고" |
 | 결과 정리 | "QA 결과 정리해줘, 출시 판단용으로" |
+| 환경 확인 | "QA 환경 진단해줘" → `qa_doctor` |
+| 다른 회사 앱 | "인스타그램 앱 ID 찾아서 로그인 화면까지 둘러봐줘. 아무것도 누르거나 입력하진 말고" → `qa_apps` → `qa_launch` → 탐색 |
 | 끝내기 | "QA 끝났으니 정리해줘" → `qa_finish` (폰의 'Automation Running' 해제) |
 
 ### 2) `/` 명령 (정해진 절차대로)
@@ -46,10 +49,13 @@ AI 에이전트 ── flutter-mobile-qa-mcp ─┬─ mobile-mcp      ── �
 | `/mcp__flutter-mobile-qa__explore_qa` | **area**, focus, logFile | `마이 탭 전체`, `깨진 텍스트` |
 | `/mcp__flutter-mobile-qa__report_qa` | **scenarios**, audience | `qa/scenarios`, `출시 판단` |
 
-> `/` 목록에는 프롬프트만 나옵니다. 도구 목록은 `/mcp` → `flutter-mobile-qa` → **View tools** 에서 확인(12개).
+> `/` 목록에는 프롬프트만 나옵니다. 도구 목록은 `/mcp` → `flutter-mobile-qa` → **View tools** 에서 확인(18개).
 > 서버를 업데이트했는데 새 도구가 안 보이면 `/reload-plugins` 또는 `/mcp` 에서 **Reconnect**.
 
-### 3) 실행 전에 앱 띄우기 (글자 입력이 있는 QA)
+### 3) 처음 한 번: 환경 진단
+"QA 환경 진단해줘" → `qa_doctor` 가 기기·에이전트·Dart 연결을 확인하고 **지금 가능한 기능과 복구 방법**을 표로 알려 줍니다. 도구가 이상하게 실패할 때도 먼저 진단하세요(앱 버그와 환경 문제 구분).
+
+### 4) 실행 전에 앱 띄우기 (Flutter 앱 · 글자 입력이 있는 QA)
 ```bash
 flutter run -t lib/entry/entry_dev_driver.dart -d <기기> --print-dtd > /tmp/qa_run.log 2>&1
 ```
@@ -62,8 +68,8 @@ flutter run -t lib/entry/entry_dev_driver.dart -d <기기> --print-dtd > /tmp/qa
 2. [준비](#2-준비)
 3. [설치와 등록](#3-설치와-등록)
 4. [사용 방법](#4-사용-방법) — **처음이면 4-0 부터**
-5. [도구 레퍼런스](#5-도구-레퍼런스)
-6. [안전장치](#6-안전장치)
+5. [도구 레퍼런스](#5-도구-레퍼런스) — 선택자·대기·실행 기록·진단
+6. [안전장치와 프로젝트 설정](#6-안전장치와-프로젝트-설정)
 7. [문제 해결](#7-문제-해결)
 8. [QA 가 잘 되게 앱을 다듬는 법](#8-qa-가-잘-되게-앱을-다듬는-법)
 
@@ -113,7 +119,10 @@ Dart 연결(`qa_connect` 의 `logFile`)은 Flutter 에서만 쓰고, **네이티
 | `qa_tap` | mobile → (Flutter면) Dart 대체 | ✅ 텍스트 버튼. 아이콘 버튼은 이름이 없으면 좌표 | ✅ `accessibilityLabel` 기준. 라벨 없는 이미지 버튼은 좌표 | ✅ `contentDescription` 기준 |
 | `qa_type` | Dart(있으면) / 기기 키보드 | ✅ **Dart 필수**(실기기 iOS 는 Flutter 입력칸에 키보드가 안 떠서 기기 입력이 안 먹음) | ✅ 기기 키보드로 입력 | ✅ 기기 키보드로 입력 |
 | `qa_expect` · `qa_swipe` · `qa_tap_xy` · `qa_screenshot` | mobile | ✅ | ✅ | ✅ |
-| `qa_dismiss_system` · `qa_launch` · `qa_finish` | mobile | ✅ | ✅ | ✅ (시스템 창 문구 규칙은 한국어 iOS 기준 — 조정 필요할 수 있음) |
+| `qa_dismiss_system` · `qa_launch` · `qa_apps` · `qa_finish` | mobile | ✅ | ✅ | ✅ (시스템 창 규칙 기본값은 한·영·일 iOS 문구 — 프로젝트 설정으로 추가) |
+| `qa_wait_until` · `qa_run_start/step/end` · `qa_doctor` | mobile (+Dart) | ✅ | ✅ | ✅ |
+| 선택자 `id` (접근성 식별자) | mobile | ✅ `Semantics(identifier:)` (Flutter 3.19+) | ✅ `accessibilityIdentifier` | ✅ `resource-id` |
+| 선택자 `key` (ValueKey) | Dart | ✅ | ❌ | ❌ |
 | `qa_errors` | Dart + mobile | ✅ 런타임 에러 + 크래시 | ⚠️ 크래시 목록만 | ⚠️ 크래시 목록만 |
 | `qa_connect` | mobile (+Dart) | 기기 + Dart 연결 | 기기만(`logFile` 생략) | 기기만 |
 | 위젯 트리·Flutter 위젯 기준 탭 | Dart | ✅ | ❌ | ❌ |
@@ -140,7 +149,7 @@ qa_finish()
 ### 주의할 점
 - **한 번만 뜨는 오버레이**(첫 진입 가이드 Showcase, 이벤트 팝업)가 흐름을 막습니다. 시나리오는 "좌표를 외워서 누르기"가 아니라 **"화면을 읽고 → 판단해서 누르기"** 로 짜야 안정적입니다.
 - 스와이프가 탭으로 인식돼 엉뚱한 카드가 눌릴 수 있습니다. 당겨서 새로고침은 `fromY` 를 화면 위쪽(헤더)으로.
-- 시스템 창 규칙과 위험 단어 목록은 현재 **한국어 UI 기준**입니다.
+- 시스템 창 규칙과 위험 단어 기본값은 **한국어·영어·일본어** 문구입니다. 다른 언어·앱 전용 문구는 [프로젝트 설정 파일](#프로젝트-설정-파일-선택--qaqaconfigjson)로 추가하세요.
 
 ---
 
@@ -148,7 +157,7 @@ qa_finish()
 
 ### 공통
 - Node.js 20+
-- Flutter 프로젝트(fvm 사용 시 `QA_PROJECT_DIR` 로 프로젝트 루트 지정)
+- (Flutter 앱) Flutter SDK. **fvm 은 선택** — 프로젝트에 `.fvmrc`/`.fvm/fvm_config.json` 이 있으면 자동으로 `fvm dart` 를, 없으면 PATH 의 `dart` 를 씁니다. `QA_PROJECT_DIR` 로 프로젝트 루트 지정
 
 ### iOS 시뮬레이터
 - Xcode 명령줄 도구. 시뮬레이터 부팅(`xcrun simctl boot <udid>`)만 하면 됩니다.
@@ -218,8 +227,10 @@ claude mcp add flutter-mobile-qa --scope project \
 | 환경 변수 | 기본값 | 설명 |
 |---|---|---|
 | `QA_DEVICE` | 첫 번째 기기 | mobile-mcp 기기 id |
-| `QA_PROJECT_DIR` | 현재 폴더 | Dart MCP 실행 위치(fvm 인식용) |
-| `QA_DART_CMD` | `fvm dart mcp-server` | fvm 안 쓰면 `dart mcp-server` |
+| `QA_PROJECT_DIR` | 현재 폴더 | 프로젝트 루트 — Dart MCP 실행 위치, fvm 자동 판단, 설정 파일(`qa/qa.config.json`)·실행 기록 기준 |
+| `QA_DART_CMD` | 자동: fvm 설정이 있으면 `fvm dart mcp-server`, 없으면 `dart mcp-server` | 다른 방식이면 직접 지정(예: `/opt/flutter/bin/dart mcp-server`, `puro dart mcp-server`) |
+| `QA_CONFIG` | `<프로젝트>/qa/qa.config.json` | 프로젝트 설정 파일 경로 |
+| `QA_RUNS_DIR` | `<프로젝트>/qa/runs` | 실행 기록 폴더 |
 | `QA_MOBILE_MCP` | `@mobilenext/mobile-mcp@1.0.5` | 버전 고정(도구 이름이 바뀌면 이 서버도 맞춰야 함) |
 
 > mobile-mcp·Dart MCP 를 따로 등록해 둘 필요는 없습니다. 이 서버가 안에서 띄웁니다.
@@ -259,14 +270,19 @@ Claude Code 에서는 프롬프트가 `/` 명령으로 보입니다: `/mcp__flut
 
 ### 4-1. 기본 흐름 (도구 직접 사용)
 ```
-qa_connect(logFile: "/tmp/qa_run.log")   # 기기 + Dart 연결
-qa_dismiss_system()                      # 권한 창·팝업 정리
-qa_read_screen()                         # 지금 화면 읽기
-qa_tap(text: "…") / qa_type(field: "…", text: "…")
-qa_expect(text: "…", state: "present")   # 결과 검증
-qa_finish()                              # 끝나면 기기 에이전트 정리
+qa_doctor(logFile: "/tmp/qa_run.log")     # 환경 진단 (네이티브·다른 회사 앱은 logFile 생략)
+qa_connect(logFile: "/tmp/qa_run.log")    # 기기 + (Flutter) Dart 연결
+qa_run_start(name: "TODO-002")            # 실행 기록 시작 (선택)
+qa_dismiss_system()                       # 권한 창·팝업 정리
+qa_read_screen()                          # 지금 화면 읽기 → r1, r2 … 참조
+qa_tap(ref: "r12", waitFor: {text: "…", state: "present"})
+qa_type(field: "…", text: "…")
+qa_expect(text: "…", state: "enabled", timeoutMs: 5000)
+qa_step(title: "…", expected: "…", result: "pass")
+qa_run_end()                              # report.md
+qa_finish()                               # 기기 에이전트 정리
 ```
-모든 조작 도구는 **실행 뒤 화면 요약을 함께 돌려줘서**, 매번 `qa_read_screen` 을 따로 부를 필요가 없습니다.
+모든 조작 도구는 **실행 뒤 화면 요약을 함께 돌려줘서**(새 ref 포함), 매번 `qa_read_screen` 을 따로 부를 필요가 없습니다.
 
 ### 4-2. 에이전트에게 이렇게 요청하면 됩니다
 ```
@@ -283,13 +299,14 @@ flutter-mobile-qa 로 홈 → 마이 → 약관 및 정책까지 들어갔다 �
 
 ### 4-3. 예시 — 일정 생성 시나리오
 ```
-qa_read_screen(filter: "일정")                       → "일정을 공유해보세요 @214,661"
-qa_tap(text: "일정을 공유해보세요")                    → 생성 화면 요약
-qa_expect(text: "일정을 생성할게요", state: "disabled") → PASS (제목 비어 있음)
-qa_type(field: "제목을 입력해주세요", text: "QA 테스트") → 입력 완료(확인됨)
-qa_expect(text: "일정을 생성할게요", state: "enabled")  → PASS
-qa_tap(text: "일정을 생성할게요")                       → 홈 요약에 "나 / QA 테스트 / 오후 12:00 ~ 오후 1:00"
+qa_read_screen(filter: "일정")              → "r18 일정을 공유해보세요 @214,661"
+qa_tap(ref: "r18", waitFor: {text: "일정을 생성할게요"})       → 대기 PASS (620ms) + 생성 화면 요약
+qa_expect(text: "일정을 생성할게요", state: "disabled")        → PASS (제목 비어 있음)
+qa_type(field: "제목을 입력해주세요", text: "QA 테스트")        → 입력 완료(확인됨)
+qa_expect(text: "일정을 생성할게요", state: "enabled", timeoutMs: 3000) → PASS
+qa_tap(text: "일정을 생성할게요", waitFor: {text: "QA 테스트"}) → 홈 요약에 "나 / QA 테스트 / 오후 12:00 ~ 오후 1:00"
 ```
+같은 문구의 버튼이 여러 개면 `qa_tap` 이 후보(ref·위치)를 돌려주므로 `ref` 로 다시 지정합니다.
 
 ### 4-4. 푸시·딥링크 테스트(시뮬레이터)
 이 서버는 "보내기"는 하지 않고, 셸로 보낸 뒤 결과를 확인합니다.
@@ -310,32 +327,95 @@ xcrun simctl openurl <udid> 'myscheme://open?…'
 
 ---
 
+### 4-6. 다른 회사 앱 QA (블랙박스)
+소스가 없는 앱도 기기 연결만으로 QA 할 수 있습니다(Flutter 앱이어도 Dart 연결은 불가 → 네이티브와 같은 경로).
+1. `qa_apps(filter: "앱 이름")` 로 번들 ID 확인 → `qa_launch(packageName)`
+2. `plan_qa` 에 source 없이 요청하면 **블랙박스 모드**: 데이터를 바꾸지 않는 선에서 화면을 둘러보며 실제 문구·흐름을 모아 시나리오를 만듭니다(기기 조작 전 확인 요청).
+3. `run_qa` / `explore_qa` 는 그대로 사용. 시나리오·실행 기록은 지금 작업 폴더의 `qa/` 아래에 저장.
+
+주의
+- 다른 회사 앱은 **실제 서비스에 영향**(결제·게시·메시지 전송·팔로우 등)이 있습니다. 탐색은 "누르지만 저장·전송하지 않는" 범위로, 위험 단어는 `qa/qa.config.json` 에 더 넣어 두세요.
+- 테스트 계정으로, 이용약관이 허용하는 범위에서만.
+- Flutter 앱이라도 실기기 iOS 에서는 글자 입력이 안 될 수 있습니다(키보드 미표시 — Dart 연결이 필요한데 남의 앱은 불가). 시뮬레이터·Android 는 대체로 기기 키보드로 입력됩니다.
+
 ## 5. 도구 레퍼런스
 
+### 선택자 (qa_tap · qa_type · qa_expect 공통)
+| 선택자 | 예 | 설명 |
+|---|---|---|
+| `ref` | `r12` | 방금 `qa_read_screen`(또는 조작 뒤 화면 요약)에 나온 참조. 탭 직전에 같은 요소인지(라벨·위치) 다시 확인하고, 화면이 바뀌었으면 거부 |
+| `id` | `todo_title` | 접근성 식별자. 문구·언어가 바뀌어도 유지 — **가장 튼튼함**. 앱에 달아 두면 좋음([8장](#8-qa-가-잘-되게-앱을-다듬는-법)) |
+| `text` | `저장` | 보이는 텍스트. 완전 일치 → 포함 순서. `exact: true` 로 완전 일치만 |
+| `index` | `1` | 후보가 여럿일 때 0부터 몇 번째 |
+| `key` (qa_tap 만) | `save_button` | Flutter `ValueKey<String>`. Dart 연결 필요 |
+
+후보가 여럿이면 **누르지 않고 후보 목록**(ref·위치)을 돌려줍니다 — 같은 이름의 "삭제" 버튼이 두 개인 화면에서 엉뚱한 걸 누르지 않도록.
+
+### 대기
+- 조작 도구(`qa_tap`·`qa_tap_xy`·`qa_swipe`·`qa_launch`)는 `waitFor: {text|id, state}` + `timeoutMs` 를 주면 **그 조건이 될 때까지** 기다립니다. 없으면 **화면이 안정될 때까지**(연속 두 번 같은 화면, 최대 3초) 기다립니다 — 고정 대기 없음.
+- `qa_expect(..., timeoutMs)`: 조건이 될 때까지 재확인. `qa_wait_until`: 로딩 사라짐(absent)·버튼 활성(enabled)·화면 안정(stable) 대기.
+
+### 도구
 | 도구 | 인자 | 동작 |
 |---|---|---|
-| `qa_connect` | `logFile?`, `dtdUri?`, `device?` | 기기 선택. (Flutter) DTD 연결 후 `set_frame_sync false`. 네이티브 앱은 `logFile` 없이 호출 |
-| `qa_read_screen` | `filter?`, `limit?`(기본 60) | `[종류]텍스트 = 값 (비활성) @x,y` 형식 요약. 중첩 중복 제거, 상태바 잡음 제거 |
-| `qa_tap` | `text`, `exact?`, `allowDanger?`, `waitMs?`(1500) | 접근성 이름/값 일치 → 포함 → Flutter `ByText` → `ByTooltipMessage` 순서로 찾음. 탭 후 화면 요약 |
-| `qa_tap_xy` | `x`, `y`, `waitMs?` | 좌표 탭(화면 좌표 = `qa_read_screen` 의 `@x,y` 와 같은 기준) |
-| `qa_type` | `field`, `text` | 입력칸(라벨·힌트·현재 값으로 찾음) 탭 → 입력(Dart 연결 시 `enter_text`, 없으면 기기 키보드) → 값 확인. 실패 시 이유 반환 |
-| `qa_expect` | `text`, `state?` = present / absent / enabled / disabled | `PASS …` 또는 `FAIL …` 한 줄 |
-| `qa_dismiss_system` | 없음 | 추적 → "앱에 추적 금지 요청", 알림·로컬 네트워크 → "허용", 그 외 "닫기". 최대 5개 |
-| `qa_swipe` | `direction`, `fromY?`, `distance?` | 스와이프 후 화면 요약 |
-| `qa_screenshot` | 없음 | 이미지 반환 |
+| `qa_doctor` | `logFile?`, `dtdUri?` | 환경 진단 표(Node·mobile-mcp·기기·조작 에이전트·화면 읽기·식별자 유무·Dart·flutter run 로그·DTD·flutter_driver) + 지금 가능한 기능 + 복구 방법 |
+| `qa_connect` | `logFile?`, `dtdUri?`, `device?` | 기기 선택. (Flutter) DTD 연결 후 `set_frame_sync false`. 네이티브·다른 회사 앱은 `logFile` 없이 |
+| `qa_apps` | `filter?` | 설치된 앱 이름·번들 ID 검색 |
+| `qa_launch` | `packageName`, `restart?`, `waitFor?`, `timeoutMs?` | 앱 실행(재실행) → 안정/조건 대기 → 화면 요약 |
+| `qa_read_screen` | `filter?`, `limit?`(60) | `ref [종류]텍스트 = 값 id=식별자 (비활성) @x,y` 형식 요약 |
+| `qa_tap` | 선택자, `key?`, `allowDanger?`, `waitFor?`, `timeoutMs?` | 선택자로 탭(못 찾으면 Flutter 텍스트·툴팁 대체). 위험 단어 차단. 대기 후 화면 요약 |
+| `qa_tap_xy` | `x`, `y`, `waitFor?`, `timeoutMs?` | 좌표 탭(이름·id 없는 아이콘). 위험 차단 미적용 |
+| `qa_type` | `field?`/`id?`/`ref?`, `index?`, `text` | 입력칸 탭 → 입력(Dart `enter_text` 또는 기기 키보드) → 값 확인 |
+| `qa_expect` | 선택자, `state?`, `timeoutMs?` | `PASS/FAIL` 한 줄. 실행 기록 중 FAIL 이면 증거 자동 저장 |
+| `qa_wait_until` | `text?`/`id?`, `state?`, `stable?`, `timeoutMs?`(10000) | 조건·화면 안정 대기 |
+| `qa_dismiss_system` | 없음 | 규칙대로 방해 창 닫기(기본 한·영·일 + 프로젝트 규칙) |
+| `qa_swipe` | `direction`, `fromY?`, `distance?`, `waitFor?`, `timeoutMs?` | 스와이프(시작 x 는 기기 화면 가운데) |
+| `qa_screenshot` | 없음 | 이미지 |
 | `qa_errors` | 없음 | Flutter 런타임 에러(Dart 연결 시) + 기기 크래시 목록 |
-| `qa_launch` | `packageName`, `restart?` | 앱 실행(재실행) 후 화면 요약 |
-| `qa_finish` | 없음 | 기기 조작 에이전트(iOS 'Automation Running')와 mobilecli 데몬 종료, 내부 연결 해제. 앱·`flutter run` 은 그대로. 다음 `qa_*` 호출 때 자동으로 다시 켜짐 |
+| `qa_run_start` | `name`, `scenario?`, `app?`, `appVersion?`, `dir?` | 실행 기록 시작 → 아래 폴더 생성 |
+| `qa_step` | `title`, `expected?`, `result`(pass/fail/skip), `actual?`, `note?` | 단계 판정 기록. fail 이면 증거 저장 |
+| `qa_run_end` | `summary?` | `report.md` 생성, PASS/FAIL 수와 경로 반환 |
+| `qa_finish` | 없음 | 열린 실행 기록 닫기 → 기기 에이전트·mobilecli 데몬 종료 → 내부 연결 해제 |
+
+### 실행 기록 폴더
+```
+qa/runs/20260928-112000-TODO-002/
+├── meta.json        기기·앱·버전·git 브랜치/커밋(미커밋 여부)·Dart 연결 여부
+├── steps.jsonl      모든 도구 호출(도구·인자·결과·ms) + qa_step 판정
+├── report.md        요약(PASS/FAIL/SKIP·도구 오류) + 단계 표(기대·실제·ms·증거)
+└── evidence/        실패 시: 003-expect-저장.png · .elements.txt(화면 요소 원본) · .errors.txt(런타임 에러·크래시)
+```
+대화에는 요약과 경로만 돌아옵니다(토큰 절약). 위치는 `QA_RUNS_DIR` 또는 설정 파일 `runsDir` 로 변경.
 
 **프롬프트**: `plan_qa(feature, depth?, source?)` · `run_qa(scenario, logFile?, allowDanger?)` · `explore_qa(area, focus?, logFile?)` · `report_qa(scenarios, audience?)`
 **리소스**: `qa://guides/scenario-format` · `qa://guides/example-schedule-create`
 
 ---
 
-## 6. 안전장치
-- **위험 단어 차단**: 삭제·탈퇴·로그아웃·결제·구독하기·구매·연결 끊기(및 영문 일부). `qa_tap` 은 `allowDanger: true` 없이 누르지 않습니다. 텍스트로 찾은 요소의 실제 라벨도 한 번 더 검사합니다.
+## 6. 안전장치와 프로젝트 설정
+- **위험 단어 차단**: 기본 목록(한·영·일 — 삭제·탈퇴·로그아웃·결제·구매·구독하기·초기화·해지 / Delete·Remove·Log out·Sign out·Purchase·Buy·Subscribe·Pay·Reset·Deactivate / 削除·退会·ログアウト·購入·決済·解約 등)이 들어간 요소는 `qa_tap` 이 `allowDanger: true` 없이 누르지 않습니다. 텍스트로 찾은 요소의 실제 라벨도 한 번 더 검사합니다.
 - `qa_tap_xy`(좌표)는 무엇을 누르는지 알 수 없으므로 차단이 적용되지 않습니다. 좌표 탭 전에는 `qa_screenshot` 으로 확인하세요.
-- 실제 사용자 계정으로 QA 하면 데이터가 실제로 생기고, 커플/공유 기능이면 **상대에게도 알림이 갑니다.** QA 전용 계정을 권장합니다.
+- 실제 계정으로 QA 하면 데이터가 실제로 생기고, 공유·소셜 기능이면 **다른 사용자에게도 알림이 갑니다.** QA 전용 계정을 권장합니다. 다른 회사 앱은 [4-6](#4-6-다른-회사-앱-qa-블랙박스) 주의 참고.
+
+### 프로젝트 설정 파일 (선택) — `qa/qa.config.json`
+앱마다 다른 위험 단어·시스템 창 규칙을 둡니다(`QA_CONFIG` 로 다른 경로 지정 가능). 없으면 기본값만 씁니다.
+```json
+{
+  "dangerWords": ["연결 끊기", "계정 전환"],
+  "replaceDangerWords": false,
+  "dismissRules": [
+    { "when": "이벤트", "tap": "오늘 하루 보지 않기" },
+    { "when": "", "tap": "나중에" }
+  ],
+  "runsDir": "qa/runs"
+}
+```
+| 키 | 설명 |
+|---|---|
+| `dangerWords` | 기본 위험 단어에 **추가**(앱 전용 문구) |
+| `replaceDangerWords` | `true` 면 기본 목록 대신 `dangerWords` 만 |
+| `dismissRules` | `qa_dismiss_system` 규칙 — 화면에 `when` 문구가 보이면 `tap` 버튼을 누름(`when: ""` 은 항상). 기본 규칙보다 **먼저** 적용 |
+| `runsDir` | 실행 기록 폴더(프로젝트 기준 상대 경로) |
 
 ---
 
@@ -349,6 +429,9 @@ xcrun simctl openurl <udid> 'myscheme://open?…'
 | 글자를 보냈는데 값이 비어 있음 | 실기기 iOS 는 Flutter 입력칸에 키보드가 안 떠서 mobile 입력이 반영 안 됨 | `qa_type` 사용(Dart 입력) |
 | `qa_type` 이 "입력 후 값이 보이지 않음" | 포커스가 안 잡힘 | 입력칸이 가려져 있지 않은지 `qa_read_screen` 으로 확인, 필요하면 `qa_tap` 으로 먼저 포커스 |
 | `qa_tap` 이 탭 이름을 못 찾음 | 배지 등과 텍스트가 합쳐진 이름(예: `new\n함께하기`) | 기본은 포함 검색이라 대부분 찾음. `exact: true` 를 쓰지 않았는지 확인 |
+| `qa_tap` 이 "후보가 N개" 로 실패 | 같은 텍스트 요소가 여러 개 | 돌려준 후보의 `ref` 나 `index` 로 다시. 반복되면 앱에 식별자(id) 추가 |
+| "ref … 사라졌거나 움직임" | 읽은 뒤 화면이 바뀜(스크롤·팝업) | `qa_read_screen` 다시 → 새 ref 사용 |
+| 뭐가 문제인지 모르겠음 | 환경인지 앱인지 불분명 | `qa_doctor` |
 | 첫 실행에 아무것도 안 눌림 | iOS 권한 창이 앞에 있음 | `qa_dismiss_system` |
 | 폰에 'Automation Running' 이 계속 떠 있음 | QA 후 조작 에이전트가 남아 있음 | `qa_finish` |
 | Dart 연결 실패 | `--print-dtd` 없이 실행 / 앱 재시작으로 주소 변경 | `flutter run … --print-dtd` 로 다시 띄우고 새 로그로 `qa_connect` |
@@ -357,6 +440,10 @@ xcrun simctl openurl <udid> 'myscheme://open?…'
 
 ## 8. QA 가 잘 되게 앱을 다듬는 법
 - **아이콘 버튼에 이름 달기**: `IconButton(tooltip: '뒤로')`, 또는 커스텀 탭 영역을 `Semantics(label: '뒤로', button: true, child: …)` 로 감싸기. 공통 컴포넌트(디자인 시스템) 한 곳에서 처리하면 앱 전체에 적용됩니다. VoiceOver·TalkBack 지원도 함께 좋아집니다.
+- **식별자 달기(가장 효과 큼)**: 문구·언어가 바뀌어도 QA 가 깨지지 않습니다. `qa_read_screen` 에 `id=…` 로 보이고 `qa_tap(id: …)` 로 선택.
+  - Flutter 3.19+: `Semantics(identifier: 'todo_save', child: …)` (iOS accessibilityIdentifier / Android resource-id 로 나감 — Dart 연결 없이 동작)
+  - Flutter `ValueKey('todo_save')` 도 되지만 Dart 연결이 있어야 함(`qa_tap(key: …)`)
+  - 네이티브 iOS: `accessibilityIdentifier` / SwiftUI `.accessibilityIdentifier(…)` · Android: `android:id`, Compose `Modifier.testTag(…)` + `testTagsAsResourceId`
 - **입력칸에 힌트/라벨**: `qa_type(field: …)` 가 힌트 텍스트로 찾습니다.
 - **QA 전용 계정·데이터**: 실제 사용자 데이터와 분리.
 - **한 번만 뜨는 가이드/팝업**: QA 빌드에서 끄는 플래그가 있으면 시나리오가 단순해집니다.
