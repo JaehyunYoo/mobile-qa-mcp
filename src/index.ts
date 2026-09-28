@@ -19,6 +19,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { z } from "zod";
 import { readFileSync, existsSync } from "node:fs";
+import { SERVER_INSTRUCTIONS, registerGuidance } from "./guidance.js";
 
 const PROJECT_DIR = process.env.QA_PROJECT_DIR ?? process.cwd();
 const DART_CMD = (process.env.QA_DART_CMD ?? "fvm dart mcp-server").split(" ");
@@ -114,7 +115,8 @@ async function driver(args: Record<string, unknown>): Promise<string> {
 }
 
 // ---------------------------------------------------------------- server
-const server = new McpServer({ name: "flutter-mobile-qa", version: "0.1.0" });
+const server = new McpServer({ name: "flutter-mobile-qa", version: "0.2.0" }, { instructions: SERVER_INSTRUCTIONS });
+registerGuidance(server);
 
 server.tool(
   "qa_connect",

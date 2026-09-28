@@ -1,8 +1,9 @@
 {
   "name": "flutter-mobile-qa-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "mobile-mcp + Dart MCP 를 묶은 Flutter 앱 QA 용 MCP 서버 (복합 도구 · 응답 요약)",
   "type": "module",
+  "files": ["dist", "guides", "skills", "README.md"],
   "bin": { "flutter-mobile-qa-mcp": "dist/index.js" },
   "scripts": { "build": "tsc", "start": "node dist/index.js" },
   "dependencies": {

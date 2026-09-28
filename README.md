@@ -16,7 +16,7 @@ AI 에이전트 ── flutter-mobile-qa-mcp ─┬─ mobile-mcp      ── �
                                        └─ dart mcp-server ── 앱 (flutter_driver · 위젯 · 에러)
 ```
 
-> 상태: 0.1.0. 두 내부 서버의 동작은 실기기(iPhone, iOS 26)와 시뮬레이터에서 검증했습니다.
+> 상태: 0.2.0. 두 내부 서버의 동작은 실기기(iPhone, iOS 26)와 시뮬레이터에서 검증했습니다.
 > 이 서버의 복합 도구 자체로 끝까지 도는 시나리오 검증은 아직입니다.
 
 ---
@@ -25,7 +25,7 @@ AI 에이전트 ── flutter-mobile-qa-mcp ─┬─ mobile-mcp      ── �
 1. [무엇이 되고 무엇이 안 되나](#1-무엇이-되고-무엇이-안-되나)
 2. [준비](#2-준비)
 3. [설치와 등록](#3-설치와-등록)
-4. [사용 방법](#4-사용-방법)
+4. [사용 방법](#4-사용-방법) — **처음이면 4-0 부터**
 5. [도구 레퍼런스](#5-도구-레퍼런스)
 6. [안전장치](#6-안전장치)
 7. [문제 해결](#7-문제-해결)
@@ -154,7 +154,36 @@ claude mcp add flutter-mobile-qa --scope project \
 
 ## 4. 사용 방법
 
-### 4-1. 기본 흐름
+### 4-0. QA 를 어떻게 진행하나 — 내장 워크플로
+무엇을 어떤 순서로 테스트할지 몰라도 됩니다. 서버에 **QA 진행 방식이 내장**돼 있습니다.
+
+| 단계 | 쓰는 것 | 하는 일 | 기기 조작 |
+|---|---|---|---|
+| ① 계획 | 프롬프트 `plan_qa` | 기능 설명 → 관련 코드·문구를 읽고 **시나리오 세트**(기본 흐름·경계값·상태 반영·되돌리기·권한·회귀)를 `qa/scenarios/*.md` 로 작성 | 없음 |
+| ② 검토 | 사람 | 시나리오 파일을 읽고 고침(Markdown 표) | 없음 |
+| ③ 실행 | 프롬프트 `run_qa` | 시작 전 무엇을 할지 확인받고, 단계마다 조작 → `qa_expect` 판정 → 파일에 PASS/FAIL 표 기록, 만든 데이터 정리 | 있음 |
+| ④ 보고 | 프롬프트 `report_qa` | 결과를 모아 결론(출시 가능/차단 이슈)·재현 단계·다음 액션 | 없음 |
+| (수시) 탐색 | 프롬프트 `explore_qa` | 시나리오 없이 화면을 돌며 깨진 텍스트·빈 화면·에러 찾기(데이터 변경 없음) | 있음 |
+
+Claude Code 에서는 프롬프트가 `/` 명령으로 보입니다: `/mcp__flutter-mobile-qa__plan_qa` 등. 그냥 말로 "투두 생성 QA 시나리오 짜줘" 라고 해도 됩니다.
+
+**내장된 것**
+- **서버 지침**: 연결하면 에이전트가 자동으로 받는 원칙(읽고→판단→조작→검증, 텍스트 우선, 데이터 정리, 위험 동작·개인 인증은 사람에게, 조작 전 확인)
+- **시나리오 형식**: [guides/SCENARIO_FORMAT.md](guides/SCENARIO_FORMAT.md) (리소스 `qa://guides/scenario-format`)
+- **예시 시나리오**: [guides/example-schedule-create.md](guides/example-schedule-create.md)
+- **Claude Code 스킬**(선택): [skills/flutter-mobile-qa/SKILL.md](skills/flutter-mobile-qa/SKILL.md) — "QA 해줘" 같은 말을 알아듣고 위 워크플로로 연결. 설치: `cp -r skills/flutter-mobile-qa ~/.claude/skills/`
+
+**예: 처음 쓰는 사람의 흐름**
+```
+나: 투두 기능 QA 시나리오 standard 로 짜줘
+→ qa/scenarios/todo-001~005.md 생성, 목록 표 제시
+나: (파일 확인 후) todo-001, 002 실행해줘. 로그는 /tmp/qa_run.log
+→ 할 일 요약·확인 요청 → 실행 → 파일 끝에 결과 표
+나: 결과 정리해줘, 출시 판단용으로
+→ 보고서
+```
+
+### 4-1. 기본 흐름 (도구 직접 사용)
 ```
 qa_connect(logFile: "/tmp/qa_run.log")   # 기기 + Dart 연결
 qa_dismiss_system()                      # 권한 창·팝업 정리
@@ -221,6 +250,9 @@ xcrun simctl openurl <udid> 'myscheme://open?…'
 | `qa_screenshot` | 없음 | 이미지 반환 |
 | `qa_errors` | 없음 | Flutter 런타임 에러(Dart 연결 시) + 기기 크래시 목록 |
 | `qa_launch` | `packageName`, `restart?` | 앱 실행(재실행) 후 화면 요약 |
+
+**프롬프트**: `plan_qa(feature, depth?, source?)` · `run_qa(scenario, logFile?, allowDanger?)` · `explore_qa(area, focus?, logFile?)` · `report_qa(scenarios, audience?)`
+**리소스**: `qa://guides/scenario-format` · `qa://guides/example-schedule-create`
 
 ---
 
