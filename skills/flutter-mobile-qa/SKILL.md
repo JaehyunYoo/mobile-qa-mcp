@@ -22,7 +22,8 @@ flutter-mobile-qa MCP 의 도구(qa_*)로 QA 를 진행한다. 요청을 네 가
 3. **텍스트 우선.** 화면 확인은 `qa_read_screen`(filter), 이미지는 레이아웃·색 확인과 FAIL 증거에만.
 4. **만든 데이터는 정리.** 입력값은 "QA 테스트 {날짜}" 처럼 찾기 쉽게.
 5. **사람에게 넘길 것**: 비밀번호·인증 코드·Face ID·개인 계정 선택·결제 확정.
-6. **FAIL 은 원인을 구분**: 앱 버그 / 시나리오 오류(화면이 바뀜) / 환경(연결·권한·데이터 없음).
+6. **끝나면 `qa_finish`** 로 기기 에이전트를 정리한다(iOS 'Automation Running' 표시 해제).
+7. **FAIL 은 원인을 구분**: 앱 버그 / 시나리오 오류(화면이 바뀜) / 환경(연결·권한·데이터 없음).
 
 ## 형식
 - 시나리오 형식: MCP 리소스 `qa://guides/scenario-format` (저장소 `guides/SCENARIO_FORMAT.md`)

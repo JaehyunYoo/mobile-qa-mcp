@@ -19,6 +19,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { z } from "zod";
 import { readFileSync, existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { SERVER_INSTRUCTIONS, registerGuidance } from "./guidance.js";
 
 const PROJECT_DIR = process.env.QA_PROJECT_DIR ?? process.cwd();
@@ -115,7 +116,7 @@ async function driver(args: Record<string, unknown>): Promise<string> {
 }
 
 // ---------------------------------------------------------------- server
-const server = new McpServer({ name: "flutter-mobile-qa", version: "0.2.0" }, { instructions: SERVER_INSTRUCTIONS });
+const server = new McpServer({ name: "flutter-mobile-qa", version: "0.3.0" }, { instructions: SERVER_INSTRUCTIONS });
 registerGuidance(server);
 
 server.tool(
@@ -288,6 +289,39 @@ server.tool(
     await m("mobile_launch_app", { packageName });
     await sleep(3000);
     return ok(`실행: ${packageName}\n--- 화면 ---\n${summarize(await screen(), 40)}`);
+  },
+);
+
+server.tool(
+  "qa_finish",
+  "QA 종료 정리: 기기의 조작 에이전트(iOS 상단 'Automation Running' 표시)와 Mac 의 mobilecli 데몬을 끄고, 내부 mobile-mcp·Dart 연결을 닫는다. 앱과 flutter run 은 건드리지 않는다. 다음 qa_* 호출 때 자동으로 다시 켜진다.",
+  {},
+  async () => {
+    const done: string[] = [];
+    if (dartConnected) {
+      try {
+        await callChild(dart(), "dtd", { command: "disconnect" });
+      } catch {}
+      dartConnected = false;
+      done.push("Dart 연결 해제");
+    }
+    for (const [name, p] of [["mobile-mcp", mobileP], ["dart mcp", dartP]] as const) {
+      if (!p) continue;
+      try {
+        await (await p).close();
+        done.push(`${name} 종료`);
+      } catch {}
+    }
+    mobileP = undefined;
+    dartP = undefined;
+    // mobilecli 데몬이 기기 에이전트(XCUITest)를 붙잡고 있다 — 데몬을 끄면 기기 쪽 에이전트도 함께 종료된다.
+    try {
+      execFileSync("pkill", ["-f", "mobilecli.*daemon"]);
+      done.push("mobilecli 데몬·기기 에이전트 종료");
+    } catch {
+      done.push("mobilecli 데몬 없음");
+    }
+    return ok(`정리 완료: ${done.join(" · ")}`);
   },
 );
 

@@ -16,7 +16,7 @@ AI 에이전트 ── flutter-mobile-qa-mcp ─┬─ mobile-mcp      ── �
                                        └─ dart mcp-server ── 앱 (flutter_driver · 위젯 · 에러)
 ```
 
-> 상태: 0.2.0. 두 내부 서버의 동작은 실기기(iPhone, iOS 26)와 시뮬레이터에서 검증했습니다.
+> 상태: 0.3.0. 두 내부 서버의 동작은 실기기(iPhone, iOS 26)와 시뮬레이터에서 검증했습니다.
 > 이 서버의 복합 도구 자체로 끝까지 도는 시나리오 검증은 아직입니다.
 
 ---
@@ -47,6 +47,7 @@ AI 에이전트 ── flutter-mobile-qa-mcp ─┬─ mobile-mcp      ── �
 | 버튼 활성/비활성·텍스트 존재 검증 | `qa_expect` | 예: 제목 입력 후 "저장" 버튼이 활성으로 바뀌는지 |
 | 스크롤·당겨서 새로고침 | `qa_swipe` | |
 | 앱 실행·재실행 | `qa_launch` | |
+| QA 종료 정리(iOS 'Automation Running' 해제) | `qa_finish` | |
 | 런타임 에러·크래시 확인 | `qa_errors` | |
 | 푸시 탭·딥링크 라우팅 (시뮬레이터) | 셸의 `xcrun simctl push` / `simctl openurl` + 이 서버로 결과 확인 | 아래 [4-4](#4-4-푸시딥링크-테스트시뮬레이터) |
 
@@ -190,6 +191,7 @@ qa_dismiss_system()                      # 권한 창·팝업 정리
 qa_read_screen()                         # 지금 화면 읽기
 qa_tap(text: "…") / qa_type(field: "…", text: "…")
 qa_expect(text: "…", state: "present")   # 결과 검증
+qa_finish()                              # 끝나면 기기 에이전트 정리
 ```
 모든 조작 도구는 **실행 뒤 화면 요약을 함께 돌려줘서**, 매번 `qa_read_screen` 을 따로 부를 필요가 없습니다.
 
@@ -250,6 +252,7 @@ xcrun simctl openurl <udid> 'myscheme://open?…'
 | `qa_screenshot` | 없음 | 이미지 반환 |
 | `qa_errors` | 없음 | Flutter 런타임 에러(Dart 연결 시) + 기기 크래시 목록 |
 | `qa_launch` | `packageName`, `restart?` | 앱 실행(재실행) 후 화면 요약 |
+| `qa_finish` | 없음 | 기기 조작 에이전트(iOS 'Automation Running')와 mobilecli 데몬 종료, 내부 연결 해제. 앱·`flutter run` 은 그대로. 다음 `qa_*` 호출 때 자동으로 다시 켜짐 |
 
 **프롬프트**: `plan_qa(feature, depth?, source?)` · `run_qa(scenario, logFile?, allowDanger?)` · `explore_qa(area, focus?, logFile?)` · `report_qa(scenarios, audience?)`
 **리소스**: `qa://guides/scenario-format` · `qa://guides/example-schedule-create`
@@ -274,6 +277,7 @@ xcrun simctl openurl <udid> 'myscheme://open?…'
 | `qa_type` 이 "입력 후 값이 보이지 않음" | 포커스가 안 잡힘 | 입력칸이 가려져 있지 않은지 `qa_read_screen` 으로 확인, 필요하면 `qa_tap` 으로 먼저 포커스 |
 | `qa_tap` 이 탭 이름을 못 찾음 | 배지 등과 텍스트가 합쳐진 이름(예: `new\n함께하기`) | 기본은 포함 검색이라 대부분 찾음. `exact: true` 를 쓰지 않았는지 확인 |
 | 첫 실행에 아무것도 안 눌림 | iOS 권한 창이 앞에 있음 | `qa_dismiss_system` |
+| 폰에 'Automation Running' 이 계속 떠 있음 | QA 후 조작 에이전트가 남아 있음 | `qa_finish` |
 | Dart 연결 실패 | `--print-dtd` 없이 실행 / 앱 재시작으로 주소 변경 | `flutter run … --print-dtd` 로 다시 띄우고 새 로그로 `qa_connect` |
 
 ---

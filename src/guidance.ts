@@ -20,6 +20,7 @@ export const SERVER_INSTRUCTIONS = `Flutter 앱 QA 서버. 원칙:
 4) 모든 단계에 기대 결과를 두고 PASS/FAIL 을 근거와 함께 기록한다. 기대와 다르면 멈추고 스크린샷·qa_errors 로 증거를 남긴다.
 5) 데이터를 만들면 정리까지. 삭제·결제·로그아웃·탈퇴는 사용자 승인 후에만 allowDanger. 비밀번호·Face ID·개인 계정 선택은 사람에게 넘긴다.
 6) 기기에서 조작을 시작하기 전에 사용자에게 무엇을 할지 알리고 확인받는다.
+7) QA 가 끝나면 qa_finish 로 기기 에이전트를 정리한다(iOS 'Automation Running' 표시 해제).
 워크플로 프롬프트: plan_qa(시나리오 작성) · run_qa(실행) · explore_qa(탐색) · report_qa(보고서). 형식: 리소스 qa://guides/scenario-format`;
 
 export function registerGuidance(server: McpServer) {
@@ -103,7 +104,8 @@ ${guide("example-schedule-create.md")}`),
 끝나면:
 - 정리 단계 실행(만든 데이터 삭제 등) 후 정말 없어졌는지 qa_expect(absent)
 - 시나리오 파일 끝에 "## 실행 결과 — 날짜, 기기" 표를 추가
-- 요약: PASS/FAIL 수, FAIL 원인 추정(앱 버그 / 시나리오 오류 / 환경 문제 구분), 다음에 할 것`),
+- 요약: PASS/FAIL 수, FAIL 원인 추정(앱 버그 / 시나리오 오류 / 환경 문제 구분), 다음에 할 것
+- 마지막에 qa_finish 로 기기 에이전트 정리`),
   );
 
   server.registerPrompt(
@@ -127,7 +129,8 @@ ${guide("example-schedule-create.md")}`),
 - 들어갈 수 있는 항목(메뉴·탭·카드)을 목록으로 만들고 차례로 들어갔다 뒤로
 - 레이아웃 의심이 있을 때만 qa_screenshot
 - 화면 전환 후 qa_errors 로 런타임 에러 확인(에러가 늘었는지)
-발견 사항은 표로: 화면 · 무엇이 이상한가 · 근거(텍스트/스크린샷) · 심각도(P0~P2) · 재현 단계.`),
+발견 사항은 표로: 화면 · 무엇이 이상한가 · 근거(텍스트/스크린샷) · 심각도(P0~P2) · 재현 단계.
+끝나면 qa_finish.`),
   );
 
   server.registerPrompt(
