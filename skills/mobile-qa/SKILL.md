@@ -1,11 +1,11 @@
 ---
-name: flutter-mobile-qa
-description: Perform mobile app QA on physical devices and simulators, including scenario planning, execution, exploration, and reporting. Supports owned and third-party apps; optimized for Flutter, with native iOS, Android, and React Native support. Requires a connected flutter-mobile-qa MCP server with qa_* tools.
+name: mobile-qa
+description: Perform mobile app QA on physical devices and simulators, including scenario planning, execution, exploration, and reporting. Supports owned and third-party apps; optimized for Flutter, with native iOS, Android, and React Native support. Requires a connected mobile-qa MCP server with qa_* tools.
 ---
 
-# Mobile App QA (optimized for Flutter)
+# Mobile App QA
 
-Use the flutter-mobile-qa MCP tools (`qa_*`). Classify the request and follow the corresponding workflow.
+Use the mobile-qa MCP tools (`qa_*`). Classify the request and follow the corresponding workflow.
 
 | Request | Workflow | MCP prompt |
 |---|---|---|

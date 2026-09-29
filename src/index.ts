@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * flutter-mobile-qa-mcp — mobile-mcp(앱 밖: 화면·탭·시스템 창) + Dart MCP(앱 안: 입력·위젯·에러)를 묶은 QA 서버.
+ * mobile-qa-mcp — shared device QA via mobile-mcp, with optional Dart capabilities for Flutter.
  *
  * 핵심은 "합치기"가 아니라 복합 도구 + 응답 요약 + 안정성:
  *  - qa_read_screen: 수천 줄 요소 목록을 "ref · 텍스트 · id · 상태 · 좌표" 몇 줄로 요약
@@ -53,7 +53,7 @@ type Out = { content: Array<{ type: "text"; text: string } | { type: "image"; da
 const ok = (text: string): Out => ({ content: [{ type: "text", text }] });
 const fail = (text: string): Out => ({ content: [{ type: "text", text }], isError: true });
 
-const server = new McpServer({ name: "flutter-mobile-qa", version: "0.5.0" }, { instructions: SERVER_INSTRUCTIONS });
+const server = new McpServer({ name: "mobile-qa", version: "0.5.0" }, { instructions: SERVER_INSTRUCTIONS });
 registerGuidance(server);
 
 /** 도구 등록 + 실행 기록(실행 중일 때) + 예외를 도구 오류로 변환. */

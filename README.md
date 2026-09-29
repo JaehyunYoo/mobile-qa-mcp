@@ -1,10 +1,12 @@
-# flutter-mobile-qa-mcp
+# mobile-qa-mcp
 
 **English** | [한국어](README.ko.md) | [日本語](README.ja.md)
 
 An MCP server that lets **AI agents (such as Claude Code) perform QA by interacting with mobile apps on physical devices and simulators**.
 Use it with **your own apps or third-party apps**, even without source code — see [third-party app QA](#4-6-third-party-app-qa-black-box).
-It is **optimized for Flutter**, but most features also work with **native iOS and Android apps** through mobile-mcp. See [support by app type](#1-1-support-by-app-type).
+Its architecture is a **shared mobile QA layer with additional Flutter-specific capabilities**. React Native and native iOS/Android apps can use the common device tools through mobile-mcp; Dart adds Flutter-only input, widget, and runtime-error access. See [support by app type](#1-1-support-by-app-type) and [React Native support and validation status](#1-2-react-native-and-the-shared-qa-layer).
+
+The package and command-line executable are named `mobile-qa-mcp`; the MCP registration and optional skill are named `mobile-qa`.
 
 The server starts and combines two underlying MCP servers:
 
@@ -16,8 +18,8 @@ The server starts and combines two underlying MCP servers:
 The two servers complement each other. This server **combines operations into single tools and summarizes responses** to reduce tool calls and token usage.
 
 ```text
-AI agent ── flutter-mobile-qa-mcp ─┬─ mobile-mcp      ── device (accessibility · screenshots · taps)
-                                 └─ dart mcp-server ── app (flutter_driver · widgets · errors)
+AI agent ── mobile-qa-mcp ─┬─ mobile-mcp      ── device (accessibility · screenshots · taps)
+                           └─ dart mcp-server ── app (flutter_driver · widgets · errors)
 ```
 
 > Status: 0.5.0. The underlying servers have been verified on a physical iPhone (iOS 26) and simulators.
@@ -46,16 +48,16 @@ Before interacting with a device, the workflow asks the agent to explain the int
 
 ### 2) Use `/` commands for guided workflows
 
-In Claude Code, type `/` and find `flutter-mobile-qa`. Choose one of four prompts and provide its arguments.
+In Claude Code, type `/` and find `mobile-qa`. Choose one of four prompts and provide its arguments.
 
 | Command | Arguments (**bold** = required) | Example |
 |---|---|---|
-| `/mcp__flutter-mobile-qa__plan_qa` | **feature**, depth(smoke/standard/deep), source | `Edit todo`, `standard` |
-| `/mcp__flutter-mobile-qa__run_qa` | **scenario**, logFile, allowDanger(yes), reportLanguage(en/ko/ja) | `qa/scenarios/todo-002.md`, `/tmp/qa_run.log` |
-| `/mcp__flutter-mobile-qa__explore_qa` | **area**, focus, logFile, reportLanguage(en/ko/ja) | `Entire My tab`, `broken text` |
-| `/mcp__flutter-mobile-qa__report_qa` | **scenarios**, audience, reportLanguage(en/ko/ja) | `qa/scenarios`, `release decision` |
+| `/mcp__mobile-qa__plan_qa` | **feature**, depth(smoke/standard/deep), source | `Edit todo`, `standard` |
+| `/mcp__mobile-qa__run_qa` | **scenario**, logFile, allowDanger(yes), reportLanguage(en/ko/ja) | `qa/scenarios/todo-002.md`, `/tmp/qa_run.log` |
+| `/mcp__mobile-qa__explore_qa` | **area**, focus, logFile, reportLanguage(en/ko/ja) | `Entire My tab`, `broken text` |
+| `/mcp__mobile-qa__report_qa` | **scenarios**, audience, reportLanguage(en/ko/ja) | `qa/scenarios`, `release decision` |
 
-> The `/` menu lists prompts only. To see the 18 tools, use `/mcp` → `flutter-mobile-qa` → **View tools**.
+> The `/` menu lists prompts only. To see the 18 tools, use `/mcp` → `mobile-qa` → **View tools**.
 > If new tools do not appear after an update, use `/reload-plugins` or **Reconnect** in `/mcp`.
 
 ### 3) Diagnose the environment first
@@ -146,7 +148,7 @@ Verified on the native iOS **Settings app**: launching, listing elements, tappin
 
 | Framework | Support | Notes |
 |---|---|---|
-| React Native | ✅ Same mobile path as native apps | Add `accessibilityLabel`/`testID` to expose named targets |
+| React Native | Common device path implemented; RN app validation pending | Accessibility labels and identifiers must be exposed by the app; see [details below](#1-2-react-native-and-the-shared-qa-layer) |
 | WebView / hybrid (Capacitor, etc.) | ⚠️ Web content often exposes few elements | Screenshots + coordinates; a web tool such as Playwright is better suited to the web portion |
 | Game engines (Unity, etc.) / canvas rendering | ⚠️ Little or no accessibility tree | Screenshots + coordinates only |
 
@@ -161,6 +163,25 @@ qa_finish()
 ```
 
 The workflow prompts (`plan_qa`, `run_qa`, `explore_qa`, `report_qa`) also work here. Omit `logFile` in `run_qa`.
+
+### 1-2. React Native and the shared QA layer
+
+The common tools operate on **OS accessibility information and device input**, rather than React components. React Native apps can therefore use the same QA workflow as native apps, subject to the elements and values exposed on each platform.
+
+| Capability | React Native path and limits |
+|---|---|
+| Read screens, tap, swipe, launch, and take screenshots | Shared mobile-mcp path; reliable targeting depends on exposed accessibility elements |
+| Enter text | Device keyboard, without Dart. Existing content may be appended to; inspect the field before retrying |
+| Verify input and screen state | The target field must expose its actual value for exact input verification. Hidden or unavailable values cannot be verified automatically |
+| Plan scenarios, explore, record runs, recover from failures, and report in en/ko/ja | Shared tools and agent workflows; the recent verification and recovery improvements also apply to this path |
+| Inspect the React component tree, props, or state | Not implemented |
+| Collect JavaScript/Hermes runtime errors | Not implemented. Without Dart, `qa_errors` uses the device crash-list path; it does not collect React Native JavaScript errors |
+
+Use the native workflow above with **`qa_connect()` without `logFile` or `dtdUri`**. Flutter SDK and a flutter_driver entry point are not required for React Native. When switching from a Flutter session, finish that session with `qa_finish` before connecting to the RN app, so the previous Dart connection is not reused.
+
+Add meaningful `accessibilityLabel`/`accessibilityRole` values and stable `testID` values where appropriate. A `testID` is **not guaranteed to appear as this server's `id` selector on every platform or component**: inspect `qa_read_screen` and use the identifiers or refs actually returned. Parent accessibility grouping and custom controls may affect which children are exposed. See the official [React Native accessibility guide](https://reactnative.dev/docs/accessibility) and [testID documentation](https://reactnative.dev/docs/view#testid).
+
+**Validation status:** this project has not yet validated a React Native app end to end on iOS or Android. The shared code path and offline tests establish implementation coverage, not RN device compatibility. Confirm element/identifier exposure, input-value reading, keyboard behavior, scrolling, and dialogs on the target app before relying on it for release QA.
 
 ### Practical caveats
 
@@ -238,18 +259,18 @@ flutter run -t lib/entry/entry_dev_driver.dart -d <device> --print-dtd > /tmp/qa
 ## 3. Installation and registration
 
 ```bash
-git clone <repository-url> ~/Desktop/flutter-mobile-qa-mcp   # Or copy the repository
-cd ~/Desktop/flutter-mobile-qa-mcp
+git clone <repository-url> ~/Desktop/mobile-qa-mcp   # Or copy the repository
+cd ~/Desktop/mobile-qa-mcp
 npm install && npm run build
 ```
 
 Register in Claude Code from the root of the app project you want to test:
 
 ```bash
-claude mcp add flutter-mobile-qa --scope project \
+claude mcp add mobile-qa --scope project \
   -e QA_PROJECT_DIR="$PWD" \
   -e QA_DEVICE=<device-UDID> \
-  -- node ~/Desktop/flutter-mobile-qa-mcp/dist/index.js
+  -- node ~/Desktop/mobile-qa-mcp/dist/index.js
 ```
 
 Omit `-e QA_DEVICE=…` to use the first device. **Restart Claude Code** after registration to load the tools.
@@ -264,6 +285,12 @@ Omit `-e QA_DEVICE=…` to use the first device. **Restart Claude Code** after r
 | `QA_MOBILE_MCP` | `@mobilenext/mobile-mcp@1.0.5` | Pinned version; tool-name changes may require updates to this server |
 
 > You do not need to register mobile-mcp or Dart MCP separately. This server starts them internally.
+
+### Migrating from the previous name
+
+If you used `flutter-mobile-qa-mcp`, update the checkout/executable path to `mobile-qa-mcp`. Replace the old MCP registration `flutter-mobile-qa` with `mobile-qa` using the command above, preserving your `QA_*` settings, and reconnect the client. Slash commands now use `/mcp__mobile-qa__…`.
+
+For the optional skill, install `skills/mobile-qa` and remove the old installed `flutter-mobile-qa` skill to avoid duplicate discovery. The `qa_*` tool names, prompt names, `qa://` resources, configuration keys, and existing scenario/run files stay compatible.
 
 ---
 
@@ -281,14 +308,14 @@ The server provides a workflow to help decide **what to test and in which order*
 | ④ Report | `report_qa` prompt | Summarize release readiness, blocking issues, reproduction steps, and next actions | None |
 | As needed: explore | `explore_qa` prompt | Browse without a scenario to find broken text, blank screens, and errors, without changing data | Yes |
 
-In Claude Code, prompts appear as `/` commands such as `/mcp__flutter-mobile-qa__plan_qa`. You can also ask "Write QA scenarios for creating a todo."
+In Claude Code, prompts appear as `/` commands such as `/mcp__mobile-qa__plan_qa`. You can also ask "Write QA scenarios for creating a todo."
 
 **Included guidance**
 
 - **Server instructions**: principles delivered to the agent when it connects — read → decide → act → verify, prefer text, clean up data, involve a person for dangerous actions and authentication, and confirm before device interaction.
 - **Scenario format**: [guides/SCENARIO_FORMAT.md](guides/SCENARIO_FORMAT.md), also available as `qa://guides/scenario-format`.
 - **Example scenario**: [guides/example-schedule-create.md](guides/example-schedule-create.md).
-- **Optional Claude Code skill**: [skills/flutter-mobile-qa/SKILL.md](skills/flutter-mobile-qa/SKILL.md) routes natural-language requests into these workflows. Install with `cp -r skills/flutter-mobile-qa ~/.claude/skills/`.
+- **Optional Claude Code skill**: [skills/mobile-qa/SKILL.md](skills/mobile-qa/SKILL.md) routes natural-language requests into these workflows. Install with `cp -r skills/mobile-qa ~/.claude/skills/`.
 
 **Example session**
 
@@ -322,7 +349,7 @@ Action tools return a **screen summary after the action**, including fresh refs 
 ### 4-2. Example requests
 
 ```text
-Use flutter-mobile-qa to navigate from Home to My to Terms and Policies and back.
+Use mobile-qa to navigate from Home to My to Terms and Policies and back.
 Check each screen for broken text or errors.
 ```
 

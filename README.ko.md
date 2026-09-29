@@ -1,4 +1,4 @@
-# flutter-mobile-qa-mcp
+# mobile-qa-mcp
 
 [English](README.md) | **한국어** | [日本語](README.ja.md)
 
@@ -6,7 +6,9 @@
 
 모바일 앱을 **AI 에이전트(Claude Code 등)가 실기기·시뮬레이터에서 직접 조작하며 QA** 하도록 해 주는 MCP 서버입니다.
 **직접 개발한 앱이든 다른 회사 앱이든** 쓸 수 있습니다(소스가 없어도 됨 — [4-6. 다른 회사 앱 QA](#4-6-다른-회사-앱-qa-블랙박스)).
-**Flutter 앱에 최적화**돼 있지만, 안쪽의 mobile-mcp 는 앱 종류와 상관없이 동작하므로 **네이티브 iOS·Android 앱에도 대부분의 기능을 쓸 수 있습니다** → [1-1. 앱 종류별 지원](#1-1-앱-종류별-지원-flutter--네이티브--기타).
+구조는 **공통 모바일 QA 기능에 Flutter 전용 기능을 더한 형태**입니다. React Native와 네이티브 iOS·Android 앱은 mobile-mcp의 공통 기기 도구를 사용하고, Flutter는 Dart 연결로 입력·위젯·런타임 에러 기능을 추가로 사용합니다. [앱 종류별 지원](#1-1-앱-종류별-지원-flutter--네이티브--기타)과 [React Native 지원 범위·검증 상태](#1-2-react-native와-공통-qa-기능)를 참고하세요.
+
+패키지·실행 파일 이름은 `mobile-qa-mcp`, MCP 등록명·선택 설치 스킬 이름은 `mobile-qa`입니다.
 
 두 개의 MCP 서버를 안에서 띄워 묶습니다.
 
@@ -18,8 +20,8 @@
 둘은 서로 못 하는 걸 채웁니다. 이 서버는 그 조합을 **도구 하나로 묶고, 응답을 요약**해서 호출 수와 토큰을 줄입니다.
 
 ```
-AI 에이전트 ── flutter-mobile-qa-mcp ─┬─ mobile-mcp      ── 기기 (접근성 · 스크린샷 · 탭)
-                                       └─ dart mcp-server ── 앱 (flutter_driver · 위젯 · 에러)
+AI 에이전트 ── mobile-qa-mcp ─┬─ mobile-mcp      ── 기기 (접근성 · 스크린샷 · 탭)
+                              └─ dart mcp-server ── 앱 (flutter_driver · 위젯 · 에러)
 ```
 
 > 상태: 0.5.0. 두 내부 서버의 동작은 실기기(iPhone, iOS 26)와 시뮬레이터에서 검증했습니다.
@@ -44,16 +46,16 @@ AI 에이전트 ── flutter-mobile-qa-mcp ─┬─ mobile-mcp      ── �
 | 끝내기 | "QA 끝났으니 정리해줘" → `qa_finish` (폰의 'Automation Running' 해제) |
 
 ### 2) `/` 명령 (정해진 절차대로)
-입력창에 `/` 를 치고 `flutter-mobile-qa` 를 찾으면 프롬프트 4개가 나옵니다. 고르면 필요한 값을 묻습니다.
+입력창에 `/` 를 치고 `mobile-qa` 를 찾으면 프롬프트 4개가 나옵니다. 고르면 필요한 값을 묻습니다.
 
 | 명령 | 입력 값 (굵게 = 필수) | 예 |
 |---|---|---|
-| `/mcp__flutter-mobile-qa__plan_qa` | **feature**, depth(smoke/standard/deep), source | `투두 수정`, `standard` |
-| `/mcp__flutter-mobile-qa__run_qa` | **scenario**, logFile, allowDanger(yes), reportLanguage(en/ko/ja) | `qa/scenarios/todo-002.md`, `/tmp/qa_run.log` |
-| `/mcp__flutter-mobile-qa__explore_qa` | **area**, focus, logFile, reportLanguage(en/ko/ja) | `마이 탭 전체`, `깨진 텍스트` |
-| `/mcp__flutter-mobile-qa__report_qa` | **scenarios**, audience, reportLanguage(en/ko/ja) | `qa/scenarios`, `출시 판단` |
+| `/mcp__mobile-qa__plan_qa` | **feature**, depth(smoke/standard/deep), source | `투두 수정`, `standard` |
+| `/mcp__mobile-qa__run_qa` | **scenario**, logFile, allowDanger(yes), reportLanguage(en/ko/ja) | `qa/scenarios/todo-002.md`, `/tmp/qa_run.log` |
+| `/mcp__mobile-qa__explore_qa` | **area**, focus, logFile, reportLanguage(en/ko/ja) | `마이 탭 전체`, `깨진 텍스트` |
+| `/mcp__mobile-qa__report_qa` | **scenarios**, audience, reportLanguage(en/ko/ja) | `qa/scenarios`, `출시 판단` |
 
-> `/` 목록에는 프롬프트만 나옵니다. 도구 목록은 `/mcp` → `flutter-mobile-qa` → **View tools** 에서 확인(18개).
+> `/` 목록에는 프롬프트만 나옵니다. 도구 목록은 `/mcp` → `mobile-qa` → **View tools** 에서 확인(18개).
 > 서버를 업데이트했는데 새 도구가 안 보이면 `/reload-plugins` 또는 `/mcp` 에서 **Reconnect**.
 
 ### 3) 처음 한 번: 환경 진단
@@ -136,7 +138,7 @@ Dart 연결(`qa_connect` 의 `logFile`)은 Flutter 에서만 쓰고, **네이티
 **기타 프레임워크**
 | 종류 | 사용 | 비고 |
 |---|---|---|
-| React Native | ✅ 네이티브와 같게(mobile 경로) | `accessibilityLabel`/`testID` 를 달면 이름으로 탭 가능 |
+| React Native | 공통 기기 경로 구현됨·RN 앱 검증 전 | 앱에서 접근성 라벨·식별자가 노출되어야 함. [아래 설명](#1-2-react-native와-공통-qa-기능) 참고 |
 | 웹뷰·하이브리드(WebView, Capacitor 등) | ⚠️ 웹 콘텐츠 내부는 요소가 잘 안 잡힘 | 스크린샷 + 좌표. 웹 영역은 Playwright 같은 웹 도구가 더 적합 |
 | 게임 엔진(Unity 등)·캔버스 렌더링 | ⚠️ 접근성 트리가 거의 없음 | 스크린샷 + 좌표만 |
 
@@ -149,6 +151,25 @@ qa_read_screen() → qa_tap(text: "…") → qa_type(field: "이메일", text: "
 qa_finish()
 ```
 워크플로 프롬프트(`plan_qa`·`run_qa`·`explore_qa`·`report_qa`)도 그대로 쓸 수 있습니다. `run_qa` 에서 `logFile` 을 비워 두면 됩니다.
+
+### 1-2. React Native와 공통 QA 기능
+
+공통 도구는 **OS 접근성 정보와 기기 입력**을 이용합니다. 따라서 React Native에서도 각 플랫폼에 노출된 화면 요소·값을 통해 네이티브 앱과 같은 QA 흐름을 사용할 수 있습니다.
+
+| 기능 | React Native에서의 경로와 제약 |
+|---|---|
+| 화면 읽기·탭·스와이프·앱 실행·스크린샷 | mobile-mcp 공통 경로. 접근성 요소가 노출되어야 안정적으로 대상을 선택할 수 있음 |
+| 텍스트 입력 | Dart 없이 기기 키보드 사용. 기존 값에 이어 입력될 수 있어 재시도 전에 필드 상태 확인 필요 |
+| 입력값·화면 상태 검증 | 입력 성공 판정에는 해당 필드의 실제 값이 노출되어야 함. 숨김·값 미제공은 자동 검증 불가 |
+| 시나리오 작성·탐색·실행 기록·실패 복구·한영일 보고서 | 공통 도구와 에이전트 워크플로 사용. 최근 개선한 판정·복구 기능도 이 경로에 적용 |
+| React 컴포넌트 트리·props·state 검사 | 현재 미구현 |
+| JavaScript/Hermes 런타임 오류 수집 | 현재 미구현. Dart 없이 쓰는 `qa_errors`는 기기 크래시 목록을 확인하며, RN의 JavaScript 오류를 수집하지 않음 |
+
+위의 네이티브 흐름처럼 **`logFile`·`dtdUri` 없이 `qa_connect()`**를 사용합니다. RN에는 Flutter SDK나 flutter_driver 진입점이 필요하지 않습니다. Flutter 세션에서 RN으로 전환할 때는 먼저 `qa_finish`로 이전 세션을 종료해 기존 Dart 연결을 재사용하지 않도록 합니다.
+
+필요한 곳에 의미 있는 `accessibilityLabel`·`accessibilityRole`과 안정적인 `testID`를 지정하면 도움이 됩니다. 다만 **모든 플랫폼·컴포넌트에서 `testID`가 이 서버의 `id`로 노출된다고 보장할 수는 없습니다.** `qa_read_screen`에서 실제 반환되는 식별자나 ref를 확인해 사용하세요. 부모의 접근성 그룹 설정이나 커스텀 컨트롤에 따라 자식 요소 노출이 달라질 수 있습니다. [RN 공식 접근성 가이드](https://reactnative.dev/docs/accessibility)와 [testID 설명](https://reactnative.dev/docs/view#testid)을 참고하세요.
+
+**검증 상태:** 이 프로젝트는 아직 RN 앱의 전체 흐름을 iOS·Android에서 검증하지 않았습니다. 공통 경로 구현과 오프라인 테스트만으로 RN 실기기 호환성이 검증된 것은 아닙니다. 출시 QA에 활용하기 전에 대상 앱의 요소·식별자 노출, 입력값 읽기, 키보드, 스크롤, 다이얼로그 동작을 확인해야 합니다.
 
 ### 주의할 점
 - **한 번만 뜨는 오버레이**(첫 진입 가이드 Showcase, 이벤트 팝업)가 흐름을 막습니다. 시나리오는 "좌표를 외워서 누르기"가 아니라 **"화면을 읽고 → 판단해서 누르기"** 로 짜야 안정적입니다.
@@ -214,17 +235,17 @@ flutter run -t lib/entry/entry_dev_driver.dart -d <기기> --print-dtd > /tmp/qa
 ## 3. 설치와 등록
 
 ```bash
-git clone <이 저장소> ~/Desktop/flutter-mobile-qa-mcp   # 또는 복사
-cd ~/Desktop/flutter-mobile-qa-mcp
+git clone <이 저장소> ~/Desktop/mobile-qa-mcp   # 또는 복사
+cd ~/Desktop/mobile-qa-mcp
 npm install && npm run build
 ```
 
 Claude Code 에 등록(QA 할 Flutter 프로젝트 루트에서):
 ```bash
-claude mcp add flutter-mobile-qa --scope project \
+claude mcp add mobile-qa --scope project \
   -e QA_PROJECT_DIR="$PWD" \
   -e QA_DEVICE=<기기 UDID, 생략 시 첫 번째 기기> \
-  -- node ~/Desktop/flutter-mobile-qa-mcp/dist/index.js
+  -- node ~/Desktop/mobile-qa-mcp/dist/index.js
 ```
 등록 후 **Claude Code 를 재시작**해야 도구가 보입니다.
 
@@ -238,6 +259,12 @@ claude mcp add flutter-mobile-qa --scope project \
 | `QA_MOBILE_MCP` | `@mobilenext/mobile-mcp@1.0.5` | 버전 고정(도구 이름이 바뀌면 이 서버도 맞춰야 함) |
 
 > mobile-mcp·Dart MCP 를 따로 등록해 둘 필요는 없습니다. 이 서버가 안에서 띄웁니다.
+
+### 이전 이름에서 전환하기
+
+`flutter-mobile-qa-mcp`를 사용했다면 저장소·실행 파일 경로를 `mobile-qa-mcp`로 갱신하세요. 기존 MCP 등록 `flutter-mobile-qa`를 위 명령의 `mobile-qa`로 교체하면서 `QA_*` 설정을 유지한 뒤 클라이언트를 재연결합니다. 슬래시 명령의 접두사는 `/mcp__mobile-qa__…`로 바뀝니다.
+
+선택 스킬은 `skills/mobile-qa`를 설치하고, 중복 인식을 막기 위해 이전에 설치한 `flutter-mobile-qa` 스킬을 제거하세요. `qa_*` 도구명, 프롬프트명, `qa://` 리소스, 설정 키, 기존 시나리오·실행 기록은 그대로 호환됩니다.
 
 ---
 
@@ -254,13 +281,13 @@ claude mcp add flutter-mobile-qa --scope project \
 | ④ 보고 | 프롬프트 `report_qa` | 결과를 모아 결론(출시 가능/차단 이슈)·재현 단계·다음 액션 | 없음 |
 | (수시) 탐색 | 프롬프트 `explore_qa` | 시나리오 없이 화면을 돌며 깨진 텍스트·빈 화면·에러 찾기(데이터 변경 없음) | 있음 |
 
-Claude Code 에서는 프롬프트가 `/` 명령으로 보입니다: `/mcp__flutter-mobile-qa__plan_qa` 등. 그냥 말로 "투두 생성 QA 시나리오 짜줘" 라고 해도 됩니다.
+Claude Code 에서는 프롬프트가 `/` 명령으로 보입니다: `/mcp__mobile-qa__plan_qa` 등. 그냥 말로 "투두 생성 QA 시나리오 짜줘" 라고 해도 됩니다.
 
 **내장된 것**
 - **서버 지침**: 연결하면 에이전트가 자동으로 받는 원칙(읽고→판단→조작→검증, 텍스트 우선, 데이터 정리, 위험 동작·개인 인증은 사람에게, 조작 전 확인)
 - **시나리오 형식**: [guides/SCENARIO_FORMAT.md](guides/SCENARIO_FORMAT.md) (리소스 `qa://guides/scenario-format`)
 - **예시 시나리오**: [guides/example-schedule-create.md](guides/example-schedule-create.md)
-- **Claude Code 스킬**(선택): [skills/flutter-mobile-qa/SKILL.md](skills/flutter-mobile-qa/SKILL.md) — "QA 해줘" 같은 말을 알아듣고 위 워크플로로 연결. 설치: `cp -r skills/flutter-mobile-qa ~/.claude/skills/`
+- **Claude Code 스킬**(선택): [skills/mobile-qa/SKILL.md](skills/mobile-qa/SKILL.md) — "QA 해줘" 같은 말을 알아듣고 위 워크플로로 연결. 설치: `cp -r skills/mobile-qa ~/.claude/skills/`
 
 **예: 처음 쓰는 사람의 흐름**
 ```
@@ -290,7 +317,7 @@ qa_finish()                               # 기기 에이전트 정리
 
 ### 4-2. 에이전트에게 이렇게 요청하면 됩니다
 ```
-flutter-mobile-qa 로 홈 → 마이 → 약관 및 정책까지 들어갔다 나와 보고,
+mobile-qa 로 홈 → 마이 → 약관 및 정책까지 들어갔다 나와 보고,
 각 화면에 깨진 텍스트나 에러가 없는지 확인해 줘.
 ```
 ```

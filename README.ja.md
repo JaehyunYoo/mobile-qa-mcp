@@ -1,10 +1,12 @@
-# flutter-mobile-qa-mcp
+# mobile-qa-mcp
 
 [English](README.md) | [한국어](README.ko.md) | **日本語**
 
 **AIエージェント（Claude Codeなど）が実機やシミュレーター上のモバイルアプリを直接操作してQAを行う**ためのMCPサーバーです。
 **自社アプリにも他社アプリにも**利用でき、ソースコードがなくても使えます。[他社アプリのQA](#4-6-他社アプリのqaブラックボックス)を参照してください。
-**Flutter向けに最適化**されていますが、内部のmobile-mcpを通じて、ほとんどの機能を**ネイティブiOS・Androidアプリにも利用できます**。[アプリ種別ごとの対応](#1-1-アプリ種別ごとの対応)を参照してください。
+構成は**共通のモバイルQA機能にFlutter専用機能を追加したもの**です。React NativeとネイティブiOS・Androidアプリはmobile-mcpの共通端末ツールを利用し、FlutterはDart接続で入力・ウィジェット・実行時エラーの機能を追加利用できます。[アプリ種別ごとの対応](#1-1-アプリ種別ごとの対応)と[React Nativeの対応範囲・検証状況](#1-2-react-nativeと共通qa機能)を参照してください。
+
+パッケージと実行コマンドの名前は`mobile-qa-mcp`、MCP登録名と任意のスキル名は`mobile-qa`です。
 
 内部で次の2つのMCPサーバーを起動し、連携させます。
 
@@ -16,8 +18,8 @@
 両者の機能を補完し、**複数の操作を1つのツールにまとめ、応答を要約**することで、呼び出し回数とトークン使用量を減らします。
 
 ```text
-AIエージェント ── flutter-mobile-qa-mcp ─┬─ mobile-mcp      ── 端末（アクセシビリティ・画像・タップ）
-                                       └─ dart mcp-server ── アプリ（flutter_driver・ウィジェット・エラー）
+AIエージェント ── mobile-qa-mcp ─┬─ mobile-mcp      ── 端末（アクセシビリティ・画像・タップ）
+                                 └─ dart mcp-server ── アプリ（flutter_driver・ウィジェット・エラー）
 ```
 
 > ステータス：0.5.0。内部サーバーの動作は実機（iPhone、iOS 26）とシミュレーターで確認済みです。
@@ -46,16 +48,16 @@ AIエージェント ── flutter-mobile-qa-mcp ─┬─ mobile-mcp      ─�
 
 ### 2）`/`コマンドで手順に沿って進める
 
-Claude Codeの入力欄で`/`を入力し、`flutter-mobile-qa`を探すと4つのプロンプトが表示されます。選択して引数を指定します。
+Claude Codeの入力欄で`/`を入力し、`mobile-qa`を探すと4つのプロンプトが表示されます。選択して引数を指定します。
 
 | コマンド | 引数（**太字**は必須） | 例 |
 |---|---|---|
-| `/mcp__flutter-mobile-qa__plan_qa` | **feature**, depth(smoke/standard/deep), source | `ToDo編集`, `standard` |
-| `/mcp__flutter-mobile-qa__run_qa` | **scenario**, logFile, allowDanger(yes), reportLanguage(en/ko/ja) | `qa/scenarios/todo-002.md`, `/tmp/qa_run.log` |
-| `/mcp__flutter-mobile-qa__explore_qa` | **area**, focus, logFile, reportLanguage(en/ko/ja) | `マイタブ全体`, `テキストの表示崩れ` |
-| `/mcp__flutter-mobile-qa__report_qa` | **scenarios**, audience, reportLanguage(en/ko/ja) | `qa/scenarios`, `リリース判断` |
+| `/mcp__mobile-qa__plan_qa` | **feature**, depth(smoke/standard/deep), source | `ToDo編集`, `standard` |
+| `/mcp__mobile-qa__run_qa` | **scenario**, logFile, allowDanger(yes), reportLanguage(en/ko/ja) | `qa/scenarios/todo-002.md`, `/tmp/qa_run.log` |
+| `/mcp__mobile-qa__explore_qa` | **area**, focus, logFile, reportLanguage(en/ko/ja) | `マイタブ全体`, `テキストの表示崩れ` |
+| `/mcp__mobile-qa__report_qa` | **scenarios**, audience, reportLanguage(en/ko/ja) | `qa/scenarios`, `リリース判断` |
 
-> `/`一覧に表示されるのはプロンプトのみです。18個のツールは`/mcp` → `flutter-mobile-qa` → **View tools**で確認できます。
+> `/`一覧に表示されるのはプロンプトのみです。18個のツールは`/mcp` → `mobile-qa` → **View tools**で確認できます。
 > 更新後に新しいツールが表示されない場合は、`/reload-plugins`または`/mcp`の**Reconnect**を使ってください。
 
 ### 3）最初に環境を診断する
@@ -146,7 +148,7 @@ Dart接続（`qa_connect`の`logFile`）はFlutter専用です。**ネイティ�
 
 | 種類 | 対応 | 補足 |
 |---|---|---|
-| React Native | ✅ ネイティブと同じmobile経由 | `accessibilityLabel`/`testID`を設定すると名前で対象を選択可能 |
+| React Native | 共通端末経路を実装済み。RNアプリでの検証は未実施 | アプリからアクセシビリティラベル・識別子が公開される必要があります。[詳細](#1-2-react-nativeと共通qa機能)を参照 |
 | WebView・ハイブリッド（Capacitorなど） | ⚠️ Web内部の要素を取得しにくい | スクリーンショット + 座標。Web部分はPlaywrightなどのWebツールが適しています |
 | ゲームエンジン（Unityなど）・Canvas描画 | ⚠️ アクセシビリティツリーがほぼない | スクリーンショット + 座標のみ |
 
@@ -161,6 +163,25 @@ qa_finish()
 ```
 
 ワークフロープロンプト（`plan_qa`、`run_qa`、`explore_qa`、`report_qa`）も利用できます。`run_qa`では`logFile`を省略します。
+
+### 1-2. React Nativeと共通QA機能
+
+共通ツールはReactコンポーネントを直接操作するのではなく、**OSのアクセシビリティ情報と端末入力**を利用します。各プラットフォームで公開される画面要素・値に応じて、React Nativeでもネイティブアプリと同じQAフローを利用できます。
+
+| 機能 | React Nativeでの経路と制約 |
+|---|---|
+| 画面取得・タップ・スワイプ・起動・スクリーンショット | mobile-mcpの共通経路。安定した対象指定にはアクセシビリティ要素の公開が必要 |
+| テキスト入力 | Dartなしで端末キーボードを使用。既存値に追記される場合があるため、再試行前にフィールドの状態を確認 |
+| 入力値・画面状態の検証 | 入力成功の判定には対象フィールドの実際の値が必要。非公開・取得不能の値は自動検証不可 |
+| シナリオ作成・探索・実行記録・失敗時の復旧・英韓日のレポート | 共通ツールとエージェントのワークフローを利用。最近の判定・復旧改善もこの経路に適用 |
+| Reactコンポーネントツリー・props・stateの検査 | 現在は未実装 |
+| JavaScript/Hermesの実行時エラー収集 | 現在は未実装。Dartなしの`qa_errors`は端末のクラッシュ一覧を確認し、RNのJavaScriptエラーは収集しません |
+
+上記のネイティブフローと同様に、**`logFile`・`dtdUri`なしで`qa_connect()`**を使います。RNにはFlutter SDKやflutter_driverのエントリーポイントは不要です。FlutterセッションからRNに切り替える場合は、先に`qa_finish`で終了し、以前のDart接続が再利用されないようにします。
+
+必要な場所に意味のある`accessibilityLabel`・`accessibilityRole`と安定した`testID`を設定すると役立ちます。ただし、**すべてのプラットフォーム・コンポーネントで`testID`がこのサーバーの`id`として公開される保証はありません。** `qa_read_screen`で実際に返される識別子やrefを確認してください。親のアクセシビリティグループ設定やカスタムコントロールによって子要素の公開範囲が変わる場合があります。[RN公式アクセシビリティガイド](https://reactnative.dev/docs/accessibility)と[testIDの説明](https://reactnative.dev/docs/view#testid)を参照してください。
+
+**検証状況：** このプロジェクトでは、RNアプリの一連の動作をiOS・Androidでまだ検証していません。共通経路の実装とオフラインテストは、RN実機での互換性を保証するものではありません。リリースQAに利用する前に、対象アプリの要素・識別子の公開、入力値取得、キーボード、スクロール、ダイアログの動作を確認してください。
 
 ### 注意点
 
@@ -238,18 +259,18 @@ flutter run -t lib/entry/entry_dev_driver.dart -d <device> --print-dtd > /tmp/qa
 ## 3. インストールと登録
 
 ```bash
-git clone <repository-url> ~/Desktop/flutter-mobile-qa-mcp   # またはコピー
-cd ~/Desktop/flutter-mobile-qa-mcp
+git clone <repository-url> ~/Desktop/mobile-qa-mcp   # またはコピー
+cd ~/Desktop/mobile-qa-mcp
 npm install && npm run build
 ```
 
 QA対象アプリのプロジェクトルートでClaude Codeに登録します。
 
 ```bash
-claude mcp add flutter-mobile-qa --scope project \
+claude mcp add mobile-qa --scope project \
   -e QA_PROJECT_DIR="$PWD" \
   -e QA_DEVICE=<device-UDID> \
-  -- node ~/Desktop/flutter-mobile-qa-mcp/dist/index.js
+  -- node ~/Desktop/mobile-qa-mcp/dist/index.js
 ```
 
 `-e QA_DEVICE=…`を省略すると最初の端末を使います。登録後は**Claude Codeを再起動**してください。
@@ -264,6 +285,12 @@ claude mcp add flutter-mobile-qa --scope project \
 | `QA_MOBILE_MCP` | `@mobilenext/mobile-mcp@1.0.5` | 固定バージョン。ツール名が変わった場合はこのサーバーも更新が必要 |
 
 > mobile-mcpとDart MCPを別々に登録する必要はありません。このサーバーが内部で起動します。
+
+### 以前の名前からの移行
+
+`flutter-mobile-qa-mcp`を使っていた場合は、リポジトリ・実行ファイルのパスを`mobile-qa-mcp`に更新してください。既存のMCP登録`flutter-mobile-qa`を上記コマンドの`mobile-qa`に置き換え、`QA_*`設定を引き継いでクライアントを再接続します。スラッシュコマンドの接頭辞は`/mcp__mobile-qa__…`になります。
+
+任意のスキルは`skills/mobile-qa`をインストールし、重複検出を避けるため以前にインストールした`flutter-mobile-qa`スキルを削除してください。`qa_*`ツール名、プロンプト名、`qa://`リソース、設定キー、既存のシナリオ・実行記録は引き続き利用できます。
 
 ---
 
@@ -281,14 +308,14 @@ claude mcp add flutter-mobile-qa --scope project \
 | ④ 報告 | `report_qa` | リリース可否、ブロッカー、再現手順、次の対応を整理 | なし |
 | 随時：探索 | `explore_qa` | シナリオなしで画面を巡回し、表示崩れ・空画面・エラーを探す。データは変更しない | あり |
 
-Claude Codeでは`/mcp__flutter-mobile-qa__plan_qa`などの`/`コマンドとして表示されます。「ToDo作成のQAシナリオを作って」と自然言語でも依頼できます。
+Claude Codeでは`/mcp__mobile-qa__plan_qa`などの`/`コマンドとして表示されます。「ToDo作成のQAシナリオを作って」と自然言語でも依頼できます。
 
 **同梱のガイド**
 
 - **サーバー指示**：接続時にエージェントへ渡す原則。読む → 判断 → 操作 → 検証、テキスト優先、データの片付け、危険操作・認証の人への引き継ぎ、操作前の確認。
 - **シナリオ形式**：[guides/SCENARIO_FORMAT.md](guides/SCENARIO_FORMAT.md)。リソースは`qa://guides/scenario-format`。
 - **シナリオ例**：[guides/example-schedule-create.md](guides/example-schedule-create.md)。
-- **任意のClaude Codeスキル**：[skills/flutter-mobile-qa/SKILL.md](skills/flutter-mobile-qa/SKILL.md)。自然言語の依頼をワークフローへ振り分けます。インストール：`cp -r skills/flutter-mobile-qa ~/.claude/skills/`。
+- **任意のClaude Codeスキル**：[skills/mobile-qa/SKILL.md](skills/mobile-qa/SKILL.md)。自然言語の依頼をワークフローへ振り分けます。インストール：`cp -r skills/mobile-qa ~/.claude/skills/`。
 
 **利用例**
 
@@ -322,7 +349,7 @@ qa_finish()                              # 端末エージェントを終了
 ### 4-2. エージェントへの依頼例
 
 ```text
-flutter-mobile-qaでホーム → マイ → 利用規約へ移動して戻り、
+mobile-qaでホーム → マイ → 利用規約へ移動して戻り、
 各画面のテキスト表示やエラーを確認して。
 ```
 

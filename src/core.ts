@@ -69,7 +69,7 @@ function loadConfig(): Config {
   try {
     return JSON.parse(readFileSync(path, "utf8")) as Config;
   } catch (e) {
-    process.stderr.write(`[flutter-mobile-qa] 설정 파일 읽기 실패 ${path}: ${(e as Error).message}\n`);
+    process.stderr.write(`[mobile-qa] 설정 파일 읽기 실패 ${path}: ${(e as Error).message}\n`);
     return {};
   }
 }
@@ -85,7 +85,7 @@ export type ToolResult = {
 };
 
 async function spawnClient(name: string, command: string, args: string[], cwd?: string): Promise<Client> {
-  const client = new Client({ name: `flutter-mobile-qa/${name}`, version: "0.5.0" });
+  const client = new Client({ name: `mobile-qa/${name}`, version: "0.5.0" });
   await client.connect(new StdioClientTransport({ command, args, cwd, stderr: "ignore" }));
   return client;
 }
