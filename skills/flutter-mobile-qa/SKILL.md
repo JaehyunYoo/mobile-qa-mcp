@@ -1,36 +1,62 @@
 ---
 name: flutter-mobile-qa
-description: 모바일 앱(직접 만든 앱·다른 회사 앱 모두, Flutter 최적화·네이티브 iOS·Android·React Native 가능)을 실기기·시뮬레이터에서 직접 조작하며 QA 할 때 사용. "QA 해줘", "시나리오 짜줘", "이 기능 테스트해줘", "화면 돌아보면서 이상한 곳 찾아줘", "QA 결과 정리해줘" 같은 요청. flutter-mobile-qa MCP 서버(qa_* 도구)가 연결돼 있어야 한다.
+description: Perform mobile app QA on physical devices and simulators, including scenario planning, execution, exploration, and reporting. Supports owned and third-party apps; optimized for Flutter, with native iOS, Android, and React Native support. Requires a connected flutter-mobile-qa MCP server with qa_* tools.
 ---
 
-# 모바일 앱 QA (Flutter 최적화)
+# Mobile App QA (optimized for Flutter)
 
-flutter-mobile-qa MCP 의 도구(qa_*)로 QA 를 진행한다. 요청을 네 가지 중 하나로 분류해 해당 절차를 따른다.
+Use the flutter-mobile-qa MCP tools (`qa_*`). Classify the request and follow the corresponding workflow.
 
-| 요청 | 절차 | MCP 프롬프트 |
+| Request | Workflow | MCP prompt |
 |---|---|---|
-| "시나리오 짜줘", "무엇을 테스트해야 해?" | 계획 | `plan_qa` |
-| "이 시나리오 돌려줘", "QA 해줘"(시나리오 있음) | 실행 | `run_qa` |
-| "돌아다니면서 이상한 곳 찾아줘" | 탐색 | `explore_qa` |
-| "결과 정리해줘", "출시해도 돼?" | 보고 | `report_qa` |
+| "Write test scenarios", "What should I test?" | Plan | `plan_qa` |
+| "Run this scenario", "QA this feature" with existing scenarios | Run | `run_qa` |
+| "Explore the screens and find issues" | Explore | `explore_qa` |
+| "Summarize the results", "Is this ready to release?" | Report | `report_qa` |
 
-시나리오가 없는데 "QA 해줘" 라고 하면: 먼저 **계획**으로 시나리오를 만들어 보여 주고, 사용자가 확인하면 **실행**.
+Recognize equivalent requests in the user's language, including Korean requests such as "QA 해줘" and "시나리오 짜줘". If no scenarios exist, **plan** first, show them to the user, and **run** after review.
 
-## 공통 원칙
-0. **먼저 `qa_doctor`.** 환경 문제를 앱 버그로 오판하지 않게. 앱 ID 를 모르면 `qa_apps`. 소스가 없는 앱이면 `plan_qa` 는 블랙박스(화면 둘러보기) 방식.
-1. **기기 조작 전에 확인받는다.** 무엇을 할지, 데이터가 바뀌는지, 위험 단계(삭제·결제·로그아웃)가 있는지 요약해서 묻는다.
-2. **읽고 → 판단 → 조작 → 검증.** 좌표를 외워 누르지 말고 매번 `qa_read_screen` 결과로 판단(ref·id 우선). 고정 대기 대신 `waitFor`/`timeoutMs`. 실행은 `qa_run_start` → `qa_step` → `qa_run_end` 로 기록.
-3. **텍스트 우선.** 화면 확인은 `qa_read_screen`(filter), 이미지는 레이아웃·색 확인과 FAIL 증거에만.
-4. **만든 데이터는 정리.** 입력값은 "QA 테스트 {날짜}" 처럼 찾기 쉽게.
-5. **사람에게 넘길 것**: 비밀번호·인증 코드·Face ID·개인 계정 선택·결제 확정.
-6. **끝나면 `qa_finish`** 로 기기 에이전트를 정리한다(iOS 'Automation Running' 표시 해제).
-7. **FAIL 은 원인을 구분**: 앱 버그 / 시나리오 오류(화면이 바뀜) / 환경(연결·권한·데이터 없음).
+## Language
 
-## 형식
-- 시나리오 형식: MCP 리소스 `qa://guides/scenario-format` (저장소 `guides/SCENARIO_FORMAT.md`)
-- 예시: `qa://guides/example-schedule-create`
-- 저장 위치: 앱 저장소 `qa/scenarios/<기능>-<번호>.md`, 실행 결과는 같은 파일 끝에 표로 추가
+- These instructions are maintained in English. Write user-facing explanations, scenarios, and reports in the user's requested language, or the conversation language when unspecified.
+- Preserve exact UI labels, input hints, expected text, and test data in the app's language. Never translate a selector or expected value just because the instructions are in English.
+- Keep tool names, argument names, IDs, paths, and enum values unchanged.
+- Pass `reportLanguage: "en" | "ko" | "ja"` to `qa_run_start` (or `run_qa`/`explore_qa`) to match the requested or conversation language when supported. Otherwise omit it to use the project setting, which defaults to `en`. This localizes report headings; write step descriptions and summaries in that language yourself. Raw UI values and evidence are preserved.
 
-## 준비가 안 됐을 때
-- `qa_connect` 가 Dart 미연결 → 글자 입력이 필요한 시나리오는 사용자에게 `flutter run -t <driver entry> --print-dtd > 로그` 실행을 요청
-- 기기 없음/에이전트 오류 → README 7장(문제 해결) 안내
+## Shared principles
+
+0. **Start with `qa_doctor`** to distinguish environment problems from app bugs. Use `qa_apps` if the app ID is unknown. Without source access, use the black-box inspection path in `plan_qa`.
+1. **Confirm before interacting with a device.** Summarize intended actions, data changes, and dangerous steps (deletion, payment, logout).
+2. **Read → decide → act → verify.** Use the current `qa_read_screen` result, preferably `ref` or `id`, instead of memorized coordinates. Use `waitFor`/`timeoutMs` rather than fixed waits. Record runs with `qa_run_start` → `qa_step` → `qa_run_end`.
+3. **Prefer text.** Read with `qa_read_screen` and `filter`; use images for layout/color checks, coordinate targeting, and failure evidence.
+4. **Clean up created data.** Use recognizable input such as "QA 테스트 {날짜}" when testing a Korean app.
+5. **Hand off to a person** for passwords, verification codes, Face ID, personal account selection, and payment confirmation.
+6. **Finish with `qa_finish`** to stop the device agent and clear iOS's 'Automation Running' indicator.
+7. **Classify failures** as app bugs, scenario errors (such as changed screens), or environment problems (connections, permissions, missing data).
+
+## Failure recovery
+
+Allow **at most one corrective retry per failed step**. Keep the original failure and the recovery result in the run record.
+
+| Failure | Recovery |
+|---|---|
+| `STALE_REF` | Read the screen again and identify the intended target with a fresh ref or stable id. For absence after deletion/navigation, use id or exact text; an old ref cannot prove absence. |
+| Ambiguous or invalid selector | Inspect candidates and select a verified id/ref/index. Never guess the first match. Enabled/disabled assertions require a unique target. |
+| `WAIT_TIMEOUT` | The action may have completed. Inspect the current screen and verify the expected result first. On animated screens, prefer a specific `waitFor` condition. |
+| Input verification failure | Inspect the original field's value. Text elsewhere is not proof. Do not blindly retype: native input may append. If the field hides or does not expose its value, record the limitation and request human verification. |
+| Connection/tool error | Run `qa_doctor` once. Resume only after required capabilities recover; otherwise record the environment failure and skip dependent steps. |
+
+Before retrying Save, Send, Create, Delete, or payment actions, check whether the effect already occurred. If the outcome is uncertain, stop and report it. Every retry stays within the user's existing authorization. After a failed corrective retry, stop that path, skip dependent steps, and perform only authorized cleanup.
+
+## Scenario format and storage
+
+- Format: MCP resource `qa://guides/scenario-format` (repository file `guides/SCENARIO_FORMAT.md`).
+- Example: `qa://guides/example-schedule-create`.
+- Save scenarios in the app repository at `qa/scenarios/<feature>-<number>.md`; append a results table to the same file. For third-party apps without an app repository, use `qa/scenarios/` in the current working directory.
+
+## When setup is incomplete
+
+- Use the capabilities actually reported by `qa_doctor`. Missing Dart does not block device-only scenarios.
+- For an owned Flutter build requiring Dart input/widget tools, ask the user to launch with `flutter run -t <driver-entry> --print-dtd > <log-file>` and pass the log to `qa_connect`.
+- Native and third-party apps use device-only tools. Do not request a driver entry point for an app without source access. If an essential capability is unavailable, record the limitation and skip or hand off that step.
+- Missing device or automation-agent errors: refer to README section 7 (Troubleshooting).

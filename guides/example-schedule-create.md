@@ -1,26 +1,29 @@
-# SCH-001 일정 생성 기본 흐름
+# SCH-001 Create a Schedule: Happy Path
 
-> 예시 — 가상의 일정 앱 기준. 앱마다 문구·화면은 다르다.
+> Example for a fictional scheduling app. Screens and labels vary by app. Korean UI labels and test values are intentionally preserved; write scenario prose in the user's requested language.
 
-- 목적: 홈에서 일정을 만들면 입력한 제목·시간 그대로 홈 카드에 보이는지 확인
-- 우선순위: P0
-- 전제: 로그인, 오늘 날짜에 일정 없음
-- 데이터 변경: 있음 — 일정 1개 생성, 정리 단계에서 삭제
-- 위험 동작: 있음 — 정리 1번(삭제) allowDanger
+- Purpose: Verify that a schedule created from Home appears on its home card with the exact title and time entered
+- Priority: P0
+- Preconditions: Logged in; no schedules for today
+- Data changes: Yes — create one schedule, then delete it during cleanup
+- Dangerous actions: Yes — cleanup step 1 (deletion) requires allowDanger
 
-## 단계
-| # | 동작 | 기대 결과 |
+## Steps
+
+| # | Action | Expected result |
 |---|---|---|
-| 1 | 앱 실행, 방해 창(권한·홈 팝업) 정리 | 홈 화면. 하단 탭 "홈" 선택 |
-| 2 | 일정 영역의 "일정을 공유해보세요" 탭 | 일정 생성 화면. "일정을 생성할게요" 비활성 |
-| 3 | 편집기의 시작·종료 시각을 기록 | (다음 단계 비교용 값. 예: 오후 12:00 ~ 오후 1:00) |
-| 4 | 제목 입력칸에 "QA 테스트 {날짜}" 입력 | 입력칸 값이 "QA 테스트 {날짜}", "일정을 생성할게요" 활성 |
-| 5 | "일정을 생성할게요" 탭 | 홈으로 돌아옴 |
-| 6 | 홈 일정 카드 확인 | "QA 테스트 {날짜}" 와 3번에서 기록한 시각이 그대로 보인다 |
-| 7 | 그 카드를 탭 | 일정 상세. 같은 제목·같은 시각 |
+| 1 | Launch the app and dismiss blocking permission dialogs/home popups | Home screen with the "홈" bottom tab selected |
+| 2 | Tap "일정을 공유해보세요" in the schedule area | Schedule creation screen; "일정을 생성할게요" is disabled |
+| 3 | Record the start and end times shown in the editor | Reference values for later comparison, e.g. 오후 12:00 ~ 오후 1:00 |
+| 4 | Enter "QA 테스트 {날짜}" in the title field, replacing {날짜} with the test date | Field shows that exact value; "일정을 생성할게요" is enabled |
+| 5 | Tap "일정을 생성할게요" | Returns to Home |
+| 6 | Inspect the home schedule card | Shows the test title and the exact times recorded in step 3 |
+| 7 | Tap that card | Schedule details show the same title and times |
 
-## 정리
-1. 상세에서 삭제(휴지통) → 확인 → 홈에서 "QA 테스트 {날짜}" 가 보이지 않는다 (allowDanger)
+## Cleanup
 
-## 메모
-- 회귀 포인트: 서버와 앱의 시간대 변환이 어긋나면 6번에서 시각이 다르게 보인다(실제로 이런 버그를 이 방식으로 잡은 사례가 있음)
+1. Delete from Details (trash icon) → confirm → verify that the test title is absent from Home (`allowDanger`).
+
+## Notes
+
+- Regression check: a time-zone conversion mismatch between the server and app changes the displayed time in step 6. This approach has caught such a bug in practice.

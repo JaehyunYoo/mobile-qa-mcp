@@ -1,56 +1,65 @@
-# QA 시나리오 형식
+# QA Scenario Format
 
-시나리오는 **사람이 읽고 고칠 수 있는 Markdown** 입니다. 에이전트가 `plan_qa` 로 초안을 만들고, 사람이 검토·수정한 뒤 `run_qa` 로 실행합니다.
-권장 위치: QA 할 앱 저장소의 `qa/scenarios/<기능>-<번호>.md`
+Scenarios are **Markdown documents that people can read and edit**. The agent drafts them with `plan_qa`; a person reviews them before execution with `run_qa`.
+Recommended location: `qa/scenarios/<feature>-<number>.md` in the app repository.
 
-## 구조
+Write scenario prose and result summaries in the user's requested language, or the conversation language when unspecified. Keep exact UI strings, input values, IDs, and paths unchanged. The Korean strings below are example app labels, not instructions to translate them.
+
+## Structure
 
 ```markdown
-# <ID> <제목>
+# <ID> <Title>
 
-- 목적: 무엇을 확인하는가 (한 문장)
-- 우선순위: P0(출시 차단) / P1(주요) / P2(부가)
-- 전제: 로그인 상태, 계정 상태(커플 연결 등), 필요한 데이터
-- 데이터 변경: 없음 / 있음(무엇이 생기고, 끝나고 어떻게 되돌리는지)
-- 위험 동작: 없음 / 있음(allowDanger 가 필요한 단계 번호)
+- Purpose: What this scenario verifies, in one sentence
+- Priority: P0 (release blocker) / P1 (major) / P2 (minor)
+- Preconditions: Login/account state (such as a linked partner) and required data
+- Data changes: None / Yes (what is created and how to undo it afterward)
+- Dangerous actions: None / Yes (step numbers requiring allowDanger)
 
-## 단계
-| # | 동작 | 기대 결과 |
+## Steps
+| # | Action | Expected result |
 |---|---|---|
-| 1 | 홈에서 "일정을 공유해보세요" 탭 | 일정 생성 화면. "일정을 생성할게요" 비활성 |
-| 2 | 제목 입력칸에 "QA 테스트" 입력 | "일정을 생성할게요" 활성 |
+| 1 | On Home, tap "일정을 공유해보세요" | Schedule creation screen; "일정을 생성할게요" is disabled |
+| 2 | Enter "QA 테스트" in the title field | "일정을 생성할게요" is enabled |
 | … | … | … |
 
-## 정리
-- 만든 데이터 삭제 등 되돌리기 단계
+## Cleanup
+- Steps to undo changes, such as deleting created data
 
-## 메모
-- 디자인·기획 기준, 알려진 이슈 번호 등
+## Notes
+- Design/product references, known issue IDs, etc.
 ```
 
-## 작성 원칙
-1. **동작은 사람이 화면에서 보는 말로.** "제목 입력칸", "저장 버튼", "하단 탭 마이". 좌표·위젯 이름은 쓰지 않는다(화면이 바뀌면 깨짐).
-2. **모든 단계에 기대 결과.** 기대 결과가 없으면 검증이 안 된 것이다. 가능하면 `qa_expect` 로 판정할 수 있는 문장으로: "~가 보인다", "~가 비활성이다", "~에 '오후 12:00' 이 보인다".
-3. **입력값은 알아보기 쉽게.** "QA 테스트 20260928" 처럼 나중에 찾아서 지울 수 있게.
-4. **데이터를 만들면 정리 단계까지.** 만든 것을 지우는 단계는 위험 동작이므로 전제에 명시.
-5. **한 시나리오 = 한 목적.** 10단계 안팎. 길어지면 나눈다.
-6. **경계값을 따로.** 빈 입력, 최대 글자 수, 미래/과거 날짜, 권한 거부, 네트워크 끊김 등은 별도 시나리오로.
+## Writing principles
 
-## 시나리오 종류 (plan_qa 가 만드는 세트)
-| 종류 | 무엇을 | 예 |
+1. **Describe actions using what a person sees on screen.** Use "title field", "Save button", or "My bottom tab" in the app's actual language. Avoid coordinates and widget names, which break when screens change.
+2. **Give every step an expected result.** Prefer conditions that `qa_expect` can evaluate: text is visible, a button is disabled, or a field shows the exact string "오후 12:00".
+3. **Use recognizable input**, such as "QA 테스트 20260928", so test data can be found and removed later.
+4. **Include cleanup when creating data.** Deleting created data is a dangerous action; declare it in the scenario metadata.
+5. **One scenario, one purpose.** Aim for roughly ten steps; split longer flows.
+6. **Separate boundary cases** such as empty input, maximum length, future/past dates, denied permissions, and network loss.
+7. **Make verification explicit.** Check the value of the target input field, not matching text elsewhere. For absence after deletion or navigation, use a stable ID or exact UI text; an old screen ref cannot prove absence. Distinguish an app failure from an unavailable/hidden value that needs human verification.
+8. **Record bounded recovery.** Allow at most one corrective retry per failed step. Keep the initial failure and recovery outcome. Before repeating an action that changes data, verify whether its effect already occurred; stop if the outcome is uncertain.
+
+## Scenario categories for plan_qa
+
+| Category | What to verify | Example |
 |---|---|---|
-| 기본 흐름(Happy path) | 가장 흔한 사용 경로가 끝까지 되는가 | 일정 생성 → 홈에 표시 |
-| 검증·경계값 | 잘못된 입력을 막는가, 한계에서 어떻게 되는가 | 빈 제목이면 저장 비활성, 18자 초과 입력 |
-| 상태 반영 | 한 화면의 변경이 다른 화면에 반영되는가 | 생성한 일정이 캘린더·상세에도 같은 값 |
-| 되돌리기·취소 | 취소·뒤로가기에서 데이터가 안 바뀌는가 | 작성 중 닫기 → 저장 안 됨, 나가기 확인 창 |
-| 권한·외부 | 권한 거부, 알림, 딥링크, 앱 복귀 | 알림 거부 후 미리 알림 토글 안내 |
-| 회귀 | 과거 버그가 다시 안 생기는가 | 저장한 시각이 다른 화면에서도 같은 시각으로 보인다(시간대 변환 버그) |
+| Happy path | The common flow works end to end | Create a schedule → it appears on Home |
+| Validation and boundaries | Invalid input is rejected; limits behave correctly | Save is disabled for an empty title; input longer than 18 characters |
+| State propagation | A change appears consistently across screens | The schedule has the same values on Calendar and Details |
+| Undo and cancellation | Cancel/back leaves data unchanged | Close the editor without saving; exit confirmation dialog |
+| Permissions and external flows | Permission denial, notifications, deep links, returning to the app | Reminder toggle explains what to do after notification permission is denied |
+| Regression | A previously fixed bug does not recur | Saved times stay identical across screens (time-zone conversion regression) |
 
-## 실행 결과 기록 (run_qa 가 남기는 형식)
+## Run results appended by run_qa
+
+Set `reportLanguage` (`en`, `ko`, or `ja`) when starting the run to match the user's language. This selects the generated report headings; write scenario results and step descriptions in that language while preserving UI quotes and evidence.
+
 ```markdown
-## 실행 결과 — 2026-09-28 11:20, iPhone 14 Plus (iOS 26.6.1)
-| # | 결과 | 근거 |
+## Run results — 2026-09-28 11:20, iPhone 14 Plus (iOS 26.6.1)
+| # | Result | Evidence |
 |---|---|---|
-| 1 | PASS | 생성 화면, "일정을 생성할게요 (비활성)" |
-| 2 | FAIL | 입력 후 버튼이 여전히 비활성 — 스크린샷 첨부 |
+| 1 | PASS | Creation screen; "일정을 생성할게요" is disabled |
+| 2 | FAIL | Button is still disabled after entering a title; screenshot attached |
 ```

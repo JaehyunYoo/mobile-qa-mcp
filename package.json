@@ -7,7 +7,9 @@
     "dist",
     "guides",
     "skills",
-    "README.md"
+    "README.md",
+    "README.ko.md",
+    "README.ja.md"
   ],
   "bin": {
     "flutter-mobile-qa-mcp": "dist/index.js"
@@ -15,7 +17,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "npm run build && node test/selectors.test.mjs"
+    "test": "npm run build && node --test test/*.test.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.1",

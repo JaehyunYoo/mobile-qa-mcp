@@ -43,8 +43,10 @@ import {
   summarize,
   textOf,
   waitFor,
+  waitForInputValue,
 } from "./core.js";
 import { activeRun, captureEvidence, endRun, logStep, startRun } from "./runlog.js";
+import { REPORT_LANGUAGES } from "./report-language.js";
 import { runDoctor } from "./doctor.js";
 
 type Out = { content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>; isError?: boolean };
@@ -79,11 +81,11 @@ function tool<S extends z.ZodRawShape>(name: string, description: string, shape:
 
 // ---------------------------------------------------------------- shared schemas
 const sel = {
-  text: z.string().optional().describe("보이는 텍스트(완전 일치 → 포함 순서로 찾음)"),
-  id: z.string().optional().describe("접근성 식별자(iOS accessibilityIdentifier / Android resource-id / Flutter Semantics(identifier))"),
-  ref: z.string().optional().describe("qa_read_screen 이 준 참조(예: r12)"),
-  index: z.number().optional().describe("후보가 여럿일 때 0부터 몇 번째"),
-  exact: z.boolean().optional().describe("true 면 완전 일치만"),
+  text: z.string().optional().describe("Visible text in the app language (exact match first, then substring)"),
+  id: z.string().optional().describe("Accessibility identifier (iOS accessibilityIdentifier / Android resource-id / Flutter Semantics(identifier))"),
+  ref: z.string().optional().describe("Reference returned by qa_read_screen, e.g. r12"),
+  index: z.number().optional().describe("Zero-based index when multiple candidates match"),
+  exact: z.boolean().optional().describe("If true, require an exact match"),
 };
 const condShape = z
   .object({
@@ -92,7 +94,7 @@ const condShape = z
     state: z.enum(["present", "absent", "enabled", "disabled"]).optional(),
   })
   .optional()
-  .describe("조작 뒤 이 조건이 될 때까지 기다린다(예: {text:'저장', state:'enabled'})");
+  .describe("Wait for this condition after the action, e.g. {text:'저장', state:'enabled'} for a Korean Save button");
 const pick = (a: { text?: string; id?: string; ref?: string; index?: number; exact?: boolean }): Selector => ({
   text: a.text,
   id: a.id,
@@ -101,6 +103,15 @@ const pick = (a: { text?: string; id?: string; ref?: string; index?: number; exa
   exact: a.exact,
 });
 const labelOf = (e: El) => (e.label || e.value || e.id).replace(/\n/g, " / ");
+
+async function afterSettle(action: string, result: Awaited<ReturnType<typeof settle>>): Promise<Out> {
+  const message = result.stable ? `Screen stable (${result.elapsedMs}ms)` : `WAIT_TIMEOUT: screen did not stabilize (${result.elapsedMs}ms). Read the screen before retrying any action.`;
+  if (!result.stable && activeRun()) {
+    const evidence = await captureEvidence("stability-timeout");
+    logStep({ tool: "wait", result: "fail", ms: result.elapsedMs, expected: "stable screen", actual: message, evidence });
+  }
+  return (result.stable ? ok : fail)(`${action}\n${message}\n--- 화면 ---\n${remember(result.els)}`);
+}
 
 /** 조작 뒤 대기: 조건이 있으면 조건 대기, 없으면 화면 안정 대기. 결과 문구 + 화면 요약. */
 async function after(action: string, cond?: { text?: string; id?: string; state?: "present" | "absent" | "enabled" | "disabled" }, timeoutMs?: number): Promise<Out> {
@@ -113,21 +124,20 @@ async function after(action: string, cond?: { text?: string; id?: string; state?
     }
     return (r.pass ? ok : fail)(`${head}\n--- 화면 ---\n${remember(r.els)}`);
   }
-  const s = await settle();
-  return ok(`${action} (안정 ${s.elapsedMs}ms)\n--- 화면 ---\n${remember(s.els)}`);
+  return afterSettle(action, await settle(300, timeoutMs ?? 3000));
 }
 
 // ---------------------------------------------------------------- tools: 진단·연결
 tool(
   "qa_doctor",
-  "환경 진단. 기기 연결 · mobile-mcp · 조작 에이전트 · 화면 읽기 · Dart/DTD · flutter_driver 확장을 차례로 확인하고, 지금 가능한 기능과 복구 방법을 표로 알려 준다. QA 시작 전, 또는 도구가 이상하게 실패할 때 먼저 실행(앱 버그와 환경 문제 구분). Flutter 앱이면 logFile 을 준다.",
+  "Diagnose the environment: device connection, mobile-mcp, automation agent, screen reading, Dart/DTD, and flutter_driver extension. Return available capabilities and recovery steps in a table. Run before QA or when tools fail unexpectedly to distinguish environment problems from app bugs. Provide logFile for Flutter apps.",
   { logFile: z.string().optional(), dtdUri: z.string().optional() },
   async ({ logFile, dtdUri }) => ok(await runDoctor({ logFile, dtdUri })),
 );
 
 tool(
   "qa_connect",
-  "QA 세션 준비. 기기를 고르고, (Flutter 앱이면) DTD(ws://…)에 연결해 flutter_driver 프레임 동기화를 끈다. dtdUri 를 주거나 `flutter run --print-dtd` 로그 경로(logFile)를 주면 거기서 찾는다. 네이티브 앱은 logFile 없이 호출.",
+  "Prepare a QA session. Select a device and, for Flutter apps, connect to DTD (ws://…) and disable flutter_driver frame synchronization. Provide dtdUri directly or logFile from flutter run --print-dtd to discover it. Omit logFile for native apps.",
   { dtdUri: z.string().optional(), logFile: z.string().optional(), device: z.string().optional() },
   async ({ dtdUri, logFile, device: dev }) => {
     if (dev) {
@@ -153,7 +163,7 @@ tool(
 // ---------------------------------------------------------------- tools: 화면
 tool(
   "qa_read_screen",
-  "현재 화면 요약: 한 줄에 `ref [종류]텍스트 = 값 id=식별자 (비활성) @x,y`. ref(r12 등)는 이 화면에서 qa_tap/qa_type/qa_expect 에 그대로 쓸 수 있다. filter 로 일부만.",
+  "Summarize the current screen as one element per line: ref [type]text = value id=identifier (disabled) @x,y. Use refs such as r12 with qa_tap, qa_type, or qa_expect. Use filter to narrow the output. Preserve actual UI text in its original language.",
   { filter: z.string().optional(), limit: z.number().optional() },
   async ({ filter, limit }) => {
     const all = await screen();
@@ -165,8 +175,8 @@ tool(
 
 tool(
   "qa_tap",
-  "요소를 찾아 탭한다. 선택자: text / id / ref / key(Flutter ValueKey 문자열, Dart 연결 필요). 후보가 여럿이면 누르지 않고 후보 목록을 돌려준다(ref·index 로 다시 지정). 텍스트를 접근성에서 못 찾으면 Flutter 위젯(텍스트·툴팁)으로 대체. 위험 단어(삭제·탈퇴·로그아웃·결제 등 — 기본 목록 + qa/qa.config.json 의 dangerWords)는 allowDanger=true 일 때만. 탭 뒤 waitFor 조건까지 기다리거나(권장), 없으면 화면이 안정될 때까지 기다린 뒤 화면 요약을 준다.",
-  { ...sel, key: z.string().optional(), allowDanger: z.boolean().optional(), waitFor: condShape, timeoutMs: z.number().optional() },
+  "Find and tap an element using text, id, ref, or key (Flutter ValueKey string; requires Dart). Ambiguous matches return candidates without tapping; retry with ref/index. If accessibility text is not found, fall back to Flutter text/tooltip widgets. Danger words (deletion, account removal, logout, payment, etc.; defaults plus dangerWords in qa/qa.config.json) require allowDanger=true. After tapping, wait for waitFor (recommended), or screen stability if omitted, then return a screen summary.",
+  { ...sel, key: z.string().optional(), allowDanger: z.boolean().optional(), waitFor: condShape, timeoutMs: z.number().int().nonnegative().optional() },
   async (a) => {
     const danger = (s: string) => !a.allowDanger && DANGER.some((d) => s.includes(d));
     if (a.text && danger(a.text)) return fail(`위험 동작으로 차단: "${a.text}" (allowDanger=true 필요)`);
@@ -196,8 +206,8 @@ tool(
 
 tool(
   "qa_tap_xy",
-  "좌표로 탭(아이콘만 있는 버튼 등 이름·id 가 없는 요소). 좌표는 qa_read_screen 의 @x,y 와 같은 기준. 위험 동작 차단이 적용되지 않으니 먼저 qa_screenshot 으로 확인.",
-  { x: z.number(), y: z.number(), waitFor: condShape, timeoutMs: z.number().optional() },
+  "Tap coordinates for targets without a name or ID, such as unlabeled icons. Coordinates use the same space as @x,y from qa_read_screen. Danger-word blocking does not apply; inspect qa_screenshot first.",
+  { x: z.number(), y: z.number(), waitFor: condShape, timeoutMs: z.number().int().nonnegative().optional() },
   async ({ x, y, waitFor: w, timeoutMs }) => {
     await m("mobile_click_on_screen_at_coordinates", { x, y });
     return after(`탭: (${x}, ${y})`, w, timeoutMs);
@@ -206,15 +216,16 @@ tool(
 
 tool(
   "qa_type",
-  "입력칸에 글자를 넣는다: 입력칸을 field(라벨·힌트·현재 값) / id / ref 로 찾아 탭(포커스) → 입력 → 값 확인. Dart 연결이 있으면 Dart enter_text(Flutter — 실기기 iOS 는 Flutter 입력칸에 키보드가 안 떠서 필수), 없으면 기기 키보드(네이티브 앱).",
-  { field: z.string().optional(), id: z.string().optional(), ref: z.string().optional(), index: z.number().optional(), text: z.string() },
-  async ({ field, id, ref, index, text }) => {
+  "Enter text in a field selected by field (label, hint, or current value), id, or ref, then verify the exact accessibility value of that same field. Prefer id because keyboard appearance can move fields. Missing or masked values cannot be verified; matching text elsewhere does not count. With Dart, use enter_text; otherwise use the device keyboard. Preserve selectors and input text in their original language. timeoutMs controls verification polling (default 3000), not input retries.",
+  { field: z.string().optional(), id: z.string().optional(), ref: z.string().optional(), index: z.number().optional(), text: z.string(), timeoutMs: z.number().int().nonnegative().optional() },
+  async ({ field, id, ref, index, text, timeoutMs }) => {
     const els = await screen();
     const inputs = els.filter((e) => /TextField|TextView|SearchField|EditText|SecureTextField/.test(e.type));
     let r = resolve(inputs, { text: field, id, ref, index });
     if (!r.el && !r.candidates) r = resolve(els, { text: field, id, ref, index });
     if (!r.el) return fail(r.candidates ? `${r.reason}\n${describeCandidates(r.candidates)}` : `입력칸: ${r.reason}\n${summarize(els, 30)}`);
-    await m("mobile_click_on_screen_at_coordinates", { x: r.el.x + Math.min(r.el.w >> 2, 60), y: cy(r.el) });
+    const focused = await m("mobile_click_on_screen_at_coordinates", { x: r.el.x + Math.min(r.el.w >> 2, 60), y: cy(r.el) });
+    if (focused.isError) return fail(`INPUT_FOCUS_FAILED: ${textOf(focused)}`);
     await sleep(800);
     let via: string;
     if (state.dartConnected) {
@@ -222,24 +233,24 @@ tool(
       if (driverFailed(d)) return fail(`enter_text 실패: ${d.slice(0, 200)}`);
       via = "Dart enter_text";
     } else {
-      await m("mobile_type_keys", { text, submit: false });
+      const typed = await m("mobile_type_keys", { text, submit: false });
+      if (typed.isError) return fail(`INPUT_FAILED: ${textOf(typed)}`);
       via = "기기 키보드";
     }
-    const w = await waitFor({ sel: { text }, state: "present" }, 3000, 300);
+    const w = await waitForInputValue(r.el, text, timeoutMs ?? 3000);
     if (w.pass) return ok(`입력 완료(${via}): "${text}" (확인됨, ${w.elapsedMs}ms)\n--- 화면 ---\n${remember(w.els)}`);
-    const hint = state.dartConnected ? "포커스 실패 가능" : "Flutter 앱이면 키보드가 안 떠서 입력이 안 들어갔을 수 있음 → flutter_driver entry + qa_connect(logFile)";
-    return fail(`입력 후 값이 보이지 않음(${via}) — ${hint}\n${summarize(w.els, 30)}`);
+    return fail(`${w.code}: ${w.why} (${via}, ${w.elapsedMs}ms). Inspect the field before retrying; device keyboard input may append text.\n${remember(w.els, 30)}`);
   },
 );
 
 tool(
   "qa_expect",
-  "화면 검증. 대상(text / id / ref)이 보이는지(present, 기본) · 안 보이는지(absent) · 활성(enabled) · 비활성(disabled). timeoutMs 를 주면 그때까지 조건이 될 때까지 기다린다(느린 화면·로딩). 실행 기록 중 FAIL 이면 증거(스크린샷·요소·에러)를 자동 저장.",
-  { ...sel, state: z.enum(["present", "absent", "enabled", "disabled"]).optional(), timeoutMs: z.number().optional() },
+  "Verify that a target (text/id/ref) is present (default), absent, enabled, or disabled. Invalid selectors and stale refs fail; they never prove absence. Use id or exact text for absence checks after navigation/deletion. Enabled/disabled checks require a unique match or explicit index. With timeoutMs, poll the condition. During a recorded run, capture evidence on failure.",
+  { ...sel, state: z.enum(["present", "absent", "enabled", "disabled"]).optional(), timeoutMs: z.number().int().nonnegative().optional() },
   async (a) => {
     const st = a.state ?? "present";
     const cond = { sel: pick(a), state: st } as const;
-    const r = a.timeoutMs ? await waitFor(cond, a.timeoutMs) : { ...check(await screen(), cond), elapsedMs: 0 };
+    const r = a.timeoutMs !== undefined ? await waitFor(cond, a.timeoutMs) : { ...check(await screen(), cond), elapsedMs: 0 };
     const target = a.text ?? (a.id ? `id=${a.id}` : a.ref);
     const line = `${r.pass ? "PASS" : "FAIL"} ${st} "${target}" — ${r.why}${r.elapsedMs ? ` (${r.elapsedMs}ms)` : ""}`;
     if (!r.pass && activeRun()) {
@@ -252,12 +263,11 @@ tool(
 
 tool(
   "qa_wait_until",
-  "조건이 될 때까지 기다린다(기본 10초): 대상(text / id)이 present·absent·enabled·disabled. 예: 로딩 표시가 사라질 때까지(absent), 저장 버튼이 활성될 때까지(enabled). stable=true 면 화면이 더 이상 바뀌지 않을 때까지.",
-  { text: z.string().optional(), id: z.string().optional(), state: z.enum(["present", "absent", "enabled", "disabled"]).optional(), stable: z.boolean().optional(), timeoutMs: z.number().optional() },
+  "Wait for a target (text/id) to be present, absent, enabled, or disabled (default timeout: 10 seconds). With stable=true, require two identical consecutive screen reads. Return WAIT_TIMEOUT as an error if the screen does not stabilize; inspect the screen before retrying actions.",
+  { text: z.string().optional(), id: z.string().optional(), state: z.enum(["present", "absent", "enabled", "disabled"]).optional(), stable: z.boolean().optional(), timeoutMs: z.number().int().nonnegative().optional() },
   async ({ text, id, state: st, stable, timeoutMs }) => {
     if (stable || (!text && !id)) {
-      const s = await settle(200, timeoutMs ?? 10000);
-      return ok(`화면 안정 (${s.elapsedMs}ms)\n--- 화면 ---\n${remember(s.els)}`);
+      return afterSettle("대기", await settle(200, timeoutMs ?? 10000));
     }
     return after("대기", { text, id, state: st ?? "present" }, timeoutMs ?? 10000);
   },
@@ -265,7 +275,7 @@ tool(
 
 tool(
   "qa_dismiss_system",
-  "앱 흐름을 막는 창을 규칙대로 닫는다(최대 5개). 기본 규칙(한국어·영어·일본어): 앱 추적 → 추적 금지 요청, 알림·로컬 네트워크 권한 → 허용, 앱 팝업 → 닫기. 프로젝트 규칙은 qa/qa.config.json 의 dismissRules.",
+  "Dismiss up to five blocking dialogs using rules. Korean, English, and Japanese defaults deny app tracking, allow notification/local-network permissions, and close app popups. Configure app-specific dismissRules in qa/qa.config.json.",
   {},
   async () => {
     const done: string[] = [];
@@ -281,7 +291,8 @@ tool(
       if (!target) break;
       await m("mobile_click_on_screen_at_coordinates", { x: cx(target), y: cy(target) });
       done.push(target.label);
-      await settle(300, 2500);
+      const settled = await settle(300, 2500);
+      if (!settled.stable) return afterSettle(`닫음: ${done.join(" → ")}`, settled);
     }
     return ok(done.length ? `닫음: ${done.join(" → ")}` : "닫을 창 없음");
   },
@@ -289,8 +300,8 @@ tool(
 
 tool(
   "qa_swipe",
-  "스와이프(스크롤). direction=up 이면 내용이 위로(아래 내용 보기). 당겨서 새로고침은 direction=down, fromY 를 화면 위쪽(헤더)으로 — 카드 위에서 시작하면 탭으로 인식될 수 있다.",
-  { direction: z.enum(["up", "down", "left", "right"]), fromY: z.number().optional(), distance: z.number().optional(), waitFor: condShape, timeoutMs: z.number().optional() },
+  "Swipe to scroll. direction=up moves content upward to reveal content below. For pull to refresh, use direction=down and fromY near the top/header; starting over a card may be interpreted as a tap.",
+  { direction: z.enum(["up", "down", "left", "right"]), fromY: z.number().optional(), distance: z.number().optional(), waitFor: condShape, timeoutMs: z.number().int().nonnegative().optional() },
   async ({ direction, fromY, distance, waitFor: w, timeoutMs }) => {
     const x = fromY ? Math.round((await getScreenSize()).w / 2) : undefined;
     await m("mobile_swipe_on_screen", { direction, ...(fromY ? { x, y: fromY } : {}), ...(distance ? { distance } : {}) });
@@ -298,12 +309,12 @@ tool(
   },
 );
 
-tool("qa_screenshot", "스크린샷(이미지). 텍스트로 충분하면 qa_read_screen 이 훨씬 가볍다.", {}, async () => {
+tool("qa_screenshot", "Capture a screenshot image. Prefer qa_read_screen when text is sufficient to reduce token usage.", {}, async () => {
   const r = await m("mobile_take_screenshot");
   return { content: (r.content ?? []) as Out["content"] };
 });
 
-tool("qa_errors", "문제 확인: Flutter 런타임 에러(Dart 연결 시) + 기기 크래시 목록.", {}, async () => {
+tool("qa_errors", "Inspect Flutter runtime errors when Dart is connected, plus the device crash list.", {}, async () => {
   const parts: string[] = [];
   if (state.dartConnected) parts.push("[Flutter 런타임 에러]\n" + textOf(await callChild(dart(), "get_runtime_errors", {})).slice(0, 2000));
   parts.push("[기기 크래시]\n" + textOf(await m("mobile_list_crashes")).slice(0, 1000));
@@ -312,7 +323,7 @@ tool("qa_errors", "문제 확인: Flutter 런타임 에러(Dart 연결 시) + �
 
 tool(
   "qa_apps",
-  "기기에 설치된 앱의 이름과 번들 ID(패키지명)를 찾는다 — 소스가 없는 다른 회사 앱을 QA 할 때 qa_launch 에 넣을 ID 확인용. filter 로 이름·ID 일부 검색.",
+  "Find installed app names and bundle IDs (package names), including IDs to pass to qa_launch for third-party apps without source access. Use filter to match part of a name or ID.",
   { filter: z.string().optional() },
   async ({ filter }) => {
     const t = textOf(await m("mobile_list_apps"));
@@ -326,14 +337,13 @@ tool(
 
 tool(
   "qa_launch",
-  "앱 실행(또는 restart=true 로 재실행). packageName 은 번들 ID(예: com.example.app.dev). 실행 뒤 화면이 안정될 때까지 기다린다.",
-  { packageName: z.string(), restart: z.boolean().optional(), waitFor: condShape, timeoutMs: z.number().optional() },
+  "Launch an app, or restart it with restart=true. packageName is the bundle ID, e.g. com.example.app.dev. Wait for screen stability or the supplied waitFor condition after launch.",
+  { packageName: z.string(), restart: z.boolean().optional(), waitFor: condShape, timeoutMs: z.number().int().nonnegative().optional() },
   async ({ packageName, restart, waitFor: w, timeoutMs }) => {
     if (restart) await m("mobile_terminate_app", { packageName });
     await m("mobile_launch_app", { packageName });
     if (!w) {
-      const s = await settle(1500, timeoutMs ?? 8000);
-      return ok(`실행: ${packageName} (안정 ${s.elapsedMs}ms)\n--- 화면 ---\n${remember(s.els)}`);
+      return afterSettle(`실행: ${packageName}`, await settle(1500, timeoutMs ?? 8000));
     }
     return after(`실행: ${packageName}`, w, timeoutMs);
   },
@@ -342,18 +352,18 @@ tool(
 // ---------------------------------------------------------------- tools: 실행 기록
 tool(
   "qa_run_start",
-  "실행 기록 시작. 실행 폴더(기본 <프로젝트>/qa/runs/<시각>-<name>/)를 만들고 meta.json(기기·앱·코드 커밋)을 남긴다. 이후 모든 qa_* 호출이 steps.jsonl 에 기록되고, 실패 시 evidence/ 에 스크린샷·화면 요소·에러가 저장된다.",
-  { name: z.string(), scenario: z.string().optional(), app: z.string().optional(), appVersion: z.string().optional(), dir: z.string().optional() },
-  async ({ name, scenario, app, appVersion, dir }) => {
+  "Start recording a run with meta.json, steps.jsonl, and failure evidence. reportLanguage (en/ko/ja) selects report headings; precedence: this argument, project config reportLanguage, then en. Raw UI text and caller-provided step text are preserved. Write step descriptions in the user's report language.",
+  { name: z.string(), scenario: z.string().optional(), app: z.string().optional(), appVersion: z.string().optional(), dir: z.string().optional(), reportLanguage: z.enum(REPORT_LANGUAGES).optional() },
+  async ({ name, scenario, app, appVersion, dir, reportLanguage }) => {
     if (activeRun()) return fail(`이미 실행 중: ${activeRun()!.dir} — 먼저 qa_run_end`);
-    const r = await startRun(name, { scenario, app, appVersion, dir });
-    return ok(`실행 기록 시작: ${r.dir}`);
+    const r = await startRun(name, { scenario, app, appVersion, dir, reportLanguage });
+    return ok(`실행 기록 시작: ${r.dir}\nreportLanguage: ${r.reportLanguage}`);
   },
 );
 
 tool(
   "qa_step",
-  "시나리오 단계 판정을 기록한다(title · expected · result=pass/fail/skip · actual). fail 이면 증거를 자동 저장. qa_run_start 후에 쓴다.",
+  "Record a scenario step result: title, expected, result (pass/fail/skip), and actual. Automatically capture evidence on failure. Requires qa_run_start.",
   { title: z.string(), expected: z.string().optional(), result: z.enum(["pass", "fail", "skip"]), actual: z.string().optional(), note: z.string().optional() },
   async ({ title, expected, result, actual, note }) => {
     if (!activeRun()) return fail("실행 기록 중이 아님 — qa_run_start 먼저");
@@ -365,7 +375,7 @@ tool(
 
 tool(
   "qa_run_end",
-  "실행 기록 종료. report.md(요약·단계 표·증거 목록)를 만들고 경로와 PASS/FAIL 수를 돌려준다.",
+  "Finish recording. Generate report.md with a summary, step table, and evidence list, then return its path and PASS/FAIL counts.",
   { summary: z.string().optional() },
   async ({ summary }) => {
     const r = endRun(summary);
@@ -376,7 +386,7 @@ tool(
 
 tool(
   "qa_finish",
-  "QA 종료 정리: 기기의 조작 에이전트(iOS 상단 'Automation Running' 표시)와 Mac 의 mobilecli 데몬을 끄고, 내부 mobile-mcp·Dart 연결을 닫는다. 실행 기록이 열려 있으면 먼저 닫는다. 앱과 flutter run 은 건드리지 않는다. 다음 qa_* 호출 때 자동으로 다시 켜진다.",
+  "Clean up after QA: stop the device automation agent (iOS Automation Running indicator) and the Mac mobilecli daemon, then close internal mobile-mcp and Dart connections. Close any active run first. Leave the app and flutter run running. Underlying connections restart on the next qa_* call.",
   {},
   async () => {
     const done: string[] = [];

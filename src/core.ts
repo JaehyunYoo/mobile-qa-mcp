@@ -4,6 +4,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { statSync } from "node:fs";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import type { ReportLanguage } from "./report-language.js";
 
 export const PROJECT_DIR = process.env.QA_PROJECT_DIR ?? process.cwd();
 /** Dart MCP 실행 명령. QA_DART_CMD 가 없으면 프로젝트에 fvm 설정(.fvmrc/.fvm)이 있을 때만 fvm 을 쓴다. */
@@ -33,7 +34,7 @@ import { join } from "node:path";
  * }
  */
 export type DismissRule = { when: string; tap: string };
-type Config = { dangerWords?: string[]; replaceDangerWords?: boolean; dismissRules?: DismissRule[]; runsDir?: string };
+type Config = { dangerWords?: string[]; replaceDangerWords?: boolean; dismissRules?: DismissRule[]; runsDir?: string; reportLanguage?: ReportLanguage };
 
 const DEFAULT_DANGER = [
   // ko
@@ -130,7 +131,9 @@ export async function getScreenSize(): Promise<{ w: number; h: number }> {
 }
 export const resetScreenSize = () => (screenSize = undefined);
 export async function driver(args: Record<string, unknown>): Promise<string> {
-  return textOf(await callChild(dart(), "flutter_driver_command", args));
+  const result = await callChild(dart(), "flutter_driver_command", args);
+  if (result.isError) throw new Error(`DRIVER_FAILED: ${textOf(result)}`);
+  return textOf(result);
 }
 export const driverFailed = (r: string) => /isError":true/.test(r);
 
@@ -140,6 +143,8 @@ export type El = {
   type: string;
   label: string;
   value: string;
+  /** Whether accessibility exposed a value, including an explicitly empty value. */
+  hasValue: boolean;
   /** 접근성 식별자 — iOS accessibilityIdentifier / Android resource-id / Flutter `Semantics(identifier:)` */
   id: string;
   x: number;
@@ -148,7 +153,8 @@ export type El = {
   h: number;
   disabled: boolean;
 };
-const unq = (s: string) => s.replace(/\\n/g, "\n").replace(/\\r/g, "");
+const unq = (s: string) => s.replace(/\\([\\"nrt])/g, (_, c: string) => ({ n: "\n", r: "\r", t: "\t" }[c] ?? c));
+const attribute = (line: string, name: string) => line.match(new RegExp(` ${name}="((?:\\\\.|[^"\\\\])*)"`))?.[1];
 export const cx = (e: El) => e.x + (e.w >> 1);
 export const cy = (e: El) => e.y + (e.h >> 1);
 
@@ -158,12 +164,13 @@ export function parseElements(raw: string): El[] {
     const pos = line.match(/at=(-?\d+),(-?\d+) size=(\d+)x(\d+)/);
     if (!line.startsWith("@") || !pos) continue;
     const type = line.split(" ")[1] ?? "";
-    const label = unq(line.match(/ label="([^"]*)"/)?.[1] ?? line.match(/ name="([^"]*)"/)?.[1] ?? "");
-    const value = unq(line.match(/ value="([^"]*)"/)?.[1] ?? "");
-    let id = line.match(/ id="([^"]*)"/)?.[1] ?? "";
+    const label = unq(attribute(line, "label") ?? attribute(line, "name") ?? "");
+    const rawValue = attribute(line, "value");
+    const value = unq(rawValue ?? "");
+    let id = unq(attribute(line, "id") ?? "");
     if (id === label) id = ""; // iOS 는 식별자가 없으면 라벨을 id 로 돌려준다 — 진짜 식별자만 남김
     if (!label && !value && !id) continue;
-    out.push({ type, label, value, id, x: +pos[1], y: +pos[2], w: +pos[3], h: +pos[4], disabled: / disabled\b/.test(line) });
+    out.push({ type, label, value, hasValue: rawValue !== undefined, id, x: +pos[1], y: +pos[2], w: +pos[3], h: +pos[4], disabled: / disabled\b/.test(line) });
   }
   // 같은 텍스트·식별자가 중첩 요소로 여러 번 나오면 하나만 남긴다: 조작 가능한 요소(버튼·입력칸 등)를 우선,
   // 둘 다 같은 부류면 더 작은(구체적인) 것. 비활성 상태는 겹친 요소 중 하나라도 비활성이면 비활성. 위치가 먼 동명 요소는 따로 둔다.
@@ -174,6 +181,7 @@ export function parseElements(raw: string): El[] {
       (k) =>
         k.label === e.label &&
         k.value === e.value &&
+        k.hasValue === e.hasValue &&
         k.id === e.id &&
         e.x <= k.x + 1 &&
         e.y <= k.y + 1 &&
@@ -191,7 +199,9 @@ export function parseElements(raw: string): El[] {
 }
 
 export async function screenRaw(): Promise<string> {
-  return textOf(await m("mobile_list_elements_on_screen"));
+  const result = await m("mobile_list_elements_on_screen");
+  if (result.isError) throw new Error(`SCREEN_READ_FAILED: ${textOf(result)}`);
+  return textOf(result);
 }
 export async function screen(): Promise<El[]> {
   return parseElements(await screenRaw());
@@ -222,36 +232,40 @@ export function remember(els: El[], limit = 40): string {
 // ---------------------------------------------------------------- selectors
 export const norm = (s: string) => s.replace(/\s+/g, " ").trim();
 export type Selector = { text?: string; id?: string; ref?: string; index?: number; exact?: boolean };
-export type Resolved = { el?: El; candidates?: El[]; reason?: string };
+export type ResolveCode = "NOT_FOUND" | "INVALID_SELECTOR" | "STALE_REF" | "AMBIGUOUS_SELECTOR";
+export type Resolved = { el?: El; candidates?: El[]; reason?: string; code?: ResolveCode };
 
 /**
  * 선택자 해석. 우선순위 ref > id > text.
  * text 는 "완전 일치 → 포함" 순서로 찾고, 후보가 여럿이면 index 가 없을 때 후보 목록을 돌려준다(엉뚱한 버튼을 누르지 않도록).
  */
 export function resolve(els: El[], sel: Selector): Resolved {
+  if (sel.index !== undefined && (!Number.isInteger(sel.index) || sel.index < 0)) {
+    return { code: "INVALID_SELECTOR", reason: "index must be a non-negative integer" };
+  }
   if (sel.ref) {
     const prev = state.lastRefs.get(sel.ref);
-    if (!prev) return { reason: `ref ${sel.ref} 를 모름 — qa_read_screen 을 다시 읽어 주세요` };
+    if (!prev) return { code: "STALE_REF", reason: `ref ${sel.ref} 를 모름 — qa_read_screen 을 다시 읽어 주세요` };
     const same = els.filter(
       (e) => e.label === prev.label && e.value === prev.value && e.id === prev.id && Math.abs(cx(e) - cx(prev)) < 40 && Math.abs(cy(e) - cy(prev)) < 40,
     );
     if (same.length === 1) return { el: same[0] };
-    return { reason: `ref ${sel.ref}("${prev.label || prev.value}")가 화면에서 사라졌거나 움직임 — qa_read_screen 을 다시 읽어 주세요` };
+    return { code: "STALE_REF", reason: `ref ${sel.ref}("${prev.label || prev.value}")가 화면에서 사라졌거나 움직임 — qa_read_screen 을 다시 읽어 주세요` };
   }
   let pool: El[];
   let what: string;
-  if (sel.id) {
+  if (sel.id?.trim()) {
     pool = els.filter((e) => e.id === sel.id);
     what = `id=${sel.id}`;
-  } else if (sel.text) {
+  } else if (sel.text && norm(sel.text)) {
     const t = norm(sel.text);
     pool = els.filter((e) => norm(e.label) === t || norm(e.value) === t);
     if (!pool.length && !sel.exact) pool = els.filter((e) => norm(e.label).includes(t) || norm(e.value).includes(t));
     what = `"${sel.text}"`;
-  } else return { reason: "text / id / ref 중 하나가 필요합니다" };
-  if (!pool.length) return { reason: `${what} 를 찾지 못함` };
-  if (sel.index !== undefined) return pool[sel.index] ? { el: pool[sel.index] } : { reason: `${what} 후보 ${pool.length}개 — index ${sel.index} 없음`, candidates: pool };
-  if (pool.length > 1) return { candidates: pool, reason: `${what} 후보가 ${pool.length}개 — ref 또는 index(0부터)로 지정해 주세요` };
+  } else return { code: "INVALID_SELECTOR", reason: "text / id / ref 중 하나가 필요합니다" };
+  if (!pool.length) return { code: "NOT_FOUND", reason: `${what} 를 찾지 못함` };
+  if (sel.index !== undefined) return pool[sel.index] ? { el: pool[sel.index] } : { code: "INVALID_SELECTOR", reason: `${what} 후보 ${pool.length}개 — index ${sel.index} 없음`, candidates: pool };
+  if (pool.length > 1) return { code: "AMBIGUOUS_SELECTOR", candidates: pool, reason: `${what} 후보가 ${pool.length}개 — ref 또는 index(0부터)로 지정해 주세요` };
   return { el: pool[0] };
 }
 export function describeCandidates(c: El[]): string {
@@ -262,8 +276,17 @@ export function describeCandidates(c: El[]): string {
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export type Cond = { sel: Selector; state: "present" | "absent" | "enabled" | "disabled" };
 
-export function check(els: El[], c: Cond): { pass: boolean; why: string } {
-  const r = resolve(els, { ...c.sel, index: c.sel.index ?? (c.sel.ref ? undefined : 0) });
+type CheckResult = { pass: boolean; why: string; code?: string };
+
+export function check(els: El[], c: Cond): CheckResult {
+  const r = resolve(els, c.sel);
+  if (r.code === "AMBIGUOUS_SELECTOR" && (c.state === "present" || c.state === "absent")) {
+    // Presence is existential; state checks need a unique target.
+    return { pass: c.state === "present", why: `${r.candidates!.length} matching elements` };
+  }
+  if (r.code && r.code !== "NOT_FOUND") {
+    return { pass: false, code: r.code, why: `${r.code}: ${r.reason}` };
+  }
   const el = r.el;
   const pass =
     c.state === "present" ? !!el : c.state === "absent" ? !el : c.state === "enabled" ? !!el && !el.disabled : !!el && el.disabled;
@@ -272,33 +295,53 @@ export function check(els: El[], c: Cond): { pass: boolean; why: string } {
 }
 
 /** 조건이 맞을 때까지 화면을 다시 읽는다(최대 timeoutMs). 고정 대기 대신 쓴다. */
-export async function waitFor(c: Cond, timeoutMs: number, intervalMs = 400) {
+async function pollScreen(evaluate: (els: El[]) => CheckResult, timeoutMs: number, intervalMs: number) {
   const t0 = Date.now();
   let els = await screen();
-  let r = check(els, c);
-  while (!r.pass && Date.now() - t0 < timeoutMs) {
+  let r = evaluate(els);
+  while (!r.pass && !["INVALID_SELECTOR", "STALE_REF", "AMBIGUOUS_SELECTOR"].includes(r.code ?? "") && Date.now() - t0 < timeoutMs) {
     await sleep(intervalMs);
     els = await screen();
-    r = check(els, c);
+    r = evaluate(els);
   }
   return { ...r, els, elapsedMs: Date.now() - t0 };
 }
 
+export const waitFor = (c: Cond, timeoutMs: number, intervalMs = 400) => pollScreen((els) => check(els, c), timeoutMs, intervalMs);
+
+/** Reidentify the original field without relying on its old value or snapshot ref. */
+export function checkInputValue(els: El[], target: El, expected: string): CheckResult {
+  const candidates = els.filter((e) => e.type === target.type && (target.id
+    ? e.id === target.id
+    : e.label === target.label && Math.abs(cx(e) - cx(target)) < 40 && Math.abs(cy(e) - cy(target)) < 40));
+  if (candidates.length !== 1) return { pass: false, code: "INPUT_TARGET_UNRESOLVED", why: "Cannot uniquely identify the original input field; read the screen again and prefer an accessibility id." };
+  const field = candidates[0];
+  if (!field.hasValue) return { pass: false, code: "INPUT_VALUE_UNAVAILABLE", why: "The target field does not expose an accessibility value; input cannot be verified." };
+  return field.value === expected
+    ? { pass: true, why: "Target field value matches exactly" }
+    : { pass: false, code: "INPUT_VALUE_MISMATCH", why: "The target field value does not match the requested text." };
+}
+
+export const waitForInputValue = (target: El, expected: string, timeoutMs = 3000, intervalMs = 300) =>
+  pollScreen((els) => checkInputValue(els, target, expected), timeoutMs, intervalMs);
+
 /**
  * 화면이 안정될 때까지(연속 두 번 같은 요약) 기다린다 — 탭·입력 뒤 기본 대기.
- * 최소 minMs 후 확인하고 maxMs 를 넘기면 그 시점 화면을 쓴다.
+ * Return an explicit timeout when two matching reads were not observed in time.
  */
 export async function settle(minMs = 300, maxMs = 3000, intervalMs = 350) {
   const t0 = Date.now();
-  await sleep(minMs);
+  await sleep(Math.min(minMs, maxMs));
   let els = await screen();
-  let prev = summarize(els, 200);
+  const fingerprint = (items: El[]) => JSON.stringify(items.map(({ ref, ...e }) => e));
+  let prev = fingerprint(els);
   while (Date.now() - t0 < maxMs) {
-    await sleep(intervalMs);
+    await sleep(Math.min(intervalMs, maxMs - (Date.now() - t0)));
+    if (Date.now() - t0 >= maxMs) break;
     els = await screen();
-    const cur = summarize(els, 200);
-    if (cur.replace(/r\d+ /g, "") === prev.replace(/r\d+ /g, "")) break;
+    const cur = fingerprint(els);
+    if (cur === prev && Date.now() - t0 <= maxMs) return { els, elapsedMs: Date.now() - t0, stable: true, timedOut: false };
     prev = cur;
   }
-  return { els, elapsedMs: Date.now() - t0 };
+  return { els, elapsedMs: Date.now() - t0, stable: false, timedOut: true };
 }
