@@ -282,7 +282,7 @@ Omit `-e QA_DEVICE=…` to use the first device. **Restart Claude Code** after r
 | `QA_DART_CMD` | `fvm dart mcp-server` if fvm is configured; otherwise `dart mcp-server` | Override for another setup, e.g. `/opt/flutter/bin/dart mcp-server` or `puro dart mcp-server` |
 | `QA_CONFIG` | `<project>/qa/qa.config.json` | Project configuration path |
 | `QA_RUNS_DIR` | `<project>/qa/runs` | Run recording directory |
-| `QA_MOBILE_MCP` | `@mobilenext/mobile-mcp@1.0.5` | Pinned version; tool-name changes may require updates to this server |
+| `QA_MOBILE_MCP` | `@mobilenext/mobile-mcp@1.0.6` | Pinned version; tool-name changes may require updates to this server |
 
 > You do not need to register mobile-mcp or Dart MCP separately. This server starts them internally.
 

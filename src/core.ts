@@ -19,7 +19,7 @@ function existsSyncEarly(path: string): boolean {
     return false;
   }
 }
-export const MOBILE_PKG = process.env.QA_MOBILE_MCP ?? "@mobilenext/mobile-mcp@1.0.5";
+export const MOBILE_PKG = process.env.QA_MOBILE_MCP ?? "@mobilenext/mobile-mcp@1.0.6";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 

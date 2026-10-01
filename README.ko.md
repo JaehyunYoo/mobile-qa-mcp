@@ -256,7 +256,7 @@ claude mcp add mobile-qa --scope project \
 | `QA_DART_CMD` | 자동: fvm 설정이 있으면 `fvm dart mcp-server`, 없으면 `dart mcp-server` | 다른 방식이면 직접 지정(예: `/opt/flutter/bin/dart mcp-server`, `puro dart mcp-server`) |
 | `QA_CONFIG` | `<프로젝트>/qa/qa.config.json` | 프로젝트 설정 파일 경로 |
 | `QA_RUNS_DIR` | `<프로젝트>/qa/runs` | 실행 기록 폴더 |
-| `QA_MOBILE_MCP` | `@mobilenext/mobile-mcp@1.0.5` | 버전 고정(도구 이름이 바뀌면 이 서버도 맞춰야 함) |
+| `QA_MOBILE_MCP` | `@mobilenext/mobile-mcp@1.0.6` | 버전 고정(도구 이름이 바뀌면 이 서버도 맞춰야 함) |
 
 > mobile-mcp·Dart MCP 를 따로 등록해 둘 필요는 없습니다. 이 서버가 안에서 띄웁니다.
 
