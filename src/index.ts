@@ -33,6 +33,8 @@ import {
   driverFailed,
   getScreenSize,
   m,
+  act,
+  errorText,
   resetScreenSize,
   remember,
   snapshot,
@@ -203,7 +205,7 @@ tool(
     const r = resolve(els, pick(a));
     if (r.el) {
       if (danger(r.el.label)) return fail(`위험 동작으로 차단: "${r.el.label}"`);
-      await m("mobile_click_on_screen_at_coordinates", { x: cx(r.el), y: cy(r.el) });
+      await act("mobile_click_on_screen_at_coordinates", { x: cx(r.el), y: cy(r.el) });
       return after(`탭: ${r.el.ref} "${labelOf(r.el)}"${r.el.disabled ? " (비활성 상태였음)" : ""}`, a.waitFor, a.timeoutMs, a.screen);
     }
     if (r.candidates) return fail(`${r.reason}\n${describeCandidates(r.candidates)}`);
@@ -222,7 +224,10 @@ tool(
   "Tap coordinates for targets without a name or ID, such as unlabeled icons. Coordinates use the same space as @x,y from qa_read_screen(coords:true). Danger-word blocking does not apply; inspect qa_screenshot first.",
   { x: z.number(), y: z.number(), waitFor: condShape, timeoutMs: z.number().int().nonnegative().optional(), screen: screenMode },
   async ({ x, y, waitFor: w, timeoutMs, screen: scr }) => {
-    await m("mobile_click_on_screen_at_coordinates", { x, y });
+    // mobile-mcp 는 화면 밖 좌표도 "Clicked" 로 답한다 — 여기서 막는다.
+    const size = await getScreenSize();
+    if (!size.guess && (x < 0 || y < 0 || x > size.w || y > size.h)) return fail(`좌표 (${x}, ${y}) 가 화면(${size.w}x${size.h}) 밖입니다 — qa_read_screen(coords:true) 로 다시 확인하세요`);
+    await act("mobile_click_on_screen_at_coordinates", { x, y });
     return after(`탭: (${x}, ${y})`, w, timeoutMs, scr);
   },
 );
@@ -238,7 +243,7 @@ tool(
     if (!r.el && !r.candidates) r = resolve(els, { text: field, id, ref, index });
     if (!r.el) return fail(r.candidates ? `${r.reason}\n${describeCandidates(r.candidates)}` : `입력칸: ${r.reason}\n${remember(els, 30)}`);
     const focused = await m("mobile_click_on_screen_at_coordinates", { x: r.el.x + Math.min(r.el.w >> 2, 60), y: cy(r.el) });
-    if (focused.isError) return fail(`INPUT_FOCUS_FAILED: ${textOf(focused)}`);
+    if (focused.isError) return fail(`INPUT_FOCUS_FAILED: ${errorText(focused)}`);
     await sleep(800);
     let via: string;
     if (state.dartConnected) {
@@ -247,7 +252,7 @@ tool(
       via = "Dart enter_text";
     } else {
       const typed = await m("mobile_type_keys", { text, submit: false });
-      if (typed.isError) return fail(`INPUT_FAILED: ${textOf(typed)}`);
+      if (typed.isError) return fail(`INPUT_FAILED: ${errorText(typed)}`);
       via = "기기 키보드";
     }
     const w = await waitForInputValue(r.el, text, timeoutMs ?? 3000);
@@ -302,7 +307,7 @@ tool(
         if (target) break;
       }
       if (!target) break;
-      await m("mobile_click_on_screen_at_coordinates", { x: cx(target), y: cy(target) });
+      await act("mobile_click_on_screen_at_coordinates", { x: cx(target), y: cy(target) });
       done.push(target.label);
       const settled = await settle(300, 2500);
       if (!settled.stable) return afterSettle(`닫음: ${done.join(" → ")}`, settled);
@@ -317,7 +322,7 @@ tool(
   { direction: z.enum(["up", "down", "left", "right"]), fromY: z.number().optional(), distance: z.number().optional(), waitFor: condShape, timeoutMs: z.number().int().nonnegative().optional(), screen: screenMode },
   async ({ direction, fromY, distance, waitFor: w, timeoutMs, screen: scr }) => {
     const x = fromY ? Math.round((await getScreenSize()).w / 2) : undefined;
-    await m("mobile_swipe_on_screen", { direction, ...(fromY ? { x, y: fromY } : {}), ...(distance ? { distance } : {}) });
+    await act("mobile_swipe_on_screen", { direction, ...(fromY ? { x, y: fromY } : {}), ...(distance ? { distance } : {}) });
     return after(`스와이프 ${direction}`, w, timeoutMs, scr);
   },
 );
@@ -353,8 +358,8 @@ tool(
   "Launch an app, or restart it with restart=true. packageName is the bundle ID, e.g. com.example.app.dev. Wait for screen stability or the supplied waitFor condition after launch.",
   { packageName: z.string(), restart: z.boolean().optional(), waitFor: condShape, timeoutMs: z.number().int().nonnegative().optional(), screen: screenMode },
   async ({ packageName, restart, waitFor: w, timeoutMs, screen: scr }) => {
-    if (restart) await m("mobile_terminate_app", { packageName });
-    await m("mobile_launch_app", { packageName });
+    if (restart) await m("mobile_terminate_app", { packageName }); // 이미 꺼져 있으면 오류가 정상 — 무시
+    await act("mobile_launch_app", { packageName });
     if (!w) {
       return afterSettle(`실행: ${packageName}`, await settle(1500, timeoutMs ?? 8000), scr ?? "full");
     }

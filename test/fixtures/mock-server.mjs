@@ -19,12 +19,15 @@ state.mobileP = Promise.resolve({
         if (mode === 'stale-ref') return textResult('@e1 Button label="삭제" id="delete_button" at=10,200 size=40x40');
         return textResult(`${field()}\n@e2 StaticText label="QA 테스트" at=0,100 size=100x30\n@e3 TextField label="다른 입력칸" value="QA 테스트" id="other" at=0,200 size=100x30`);
       case 'mobile_click_on_screen_at_coordinates':
-        return mode === 'focus-error' ? textResult('Focus failed', true) : textResult('ok');
+        return mode === 'focus-error' || mode === 'action-error' ? textResult('Focus failed', true) : textResult('ok');
       case 'mobile_type_keys':
         if (mode === 'input-error') return textResult('Keyboard failed', true);
         if (mode !== 'input-unrelated') value = args.text;
         return textResult('ok');
-      case 'mobile_launch_app': return textResult('ok');
+      case 'mobile_launch_app':
+        return mode === 'action-error' ? textResult('Error: Command failed: /path/to/mobilecli apps launch com.missing --device x\napp not installed', true) : textResult('ok');
+      case 'mobile_get_screen_size': return textResult('Screen size is 400x800 pixels');
+      case 'mobile_terminate_app': return textResult('not running', true);
       default: throw new Error(`Unexpected mock call: ${name}`);
     }
   },

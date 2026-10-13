@@ -80,6 +80,23 @@ test('MCP stability timeouts propagate through wait, tap, and launch', async () 
   });
 });
 
+test('MCP action failures from mobile-mcp are errors, and off-screen taps are blocked', async () => {
+  await withServer('action-error', async client => {
+    const launch = await client.callTool({ name: 'qa_launch', arguments: { packageName: 'com.missing', restart: true } });
+    assert.equal(launch.isError, true);
+    assert.match(textOf(launch), /mobile_launch_app 실패: app not installed/);
+    assert.doesNotMatch(textOf(launch), /mobilecli|WAIT_TIMEOUT/);
+    const tap = await client.callTool({ name: 'qa_tap_xy', arguments: { x: 10, y: 10 } });
+    assert.equal(tap.isError, true);
+    assert.match(textOf(tap), /mobile_click_on_screen_at_coordinates 실패: Focus failed/);
+  });
+  await withServer('still', async client => {
+    const off = await client.callTool({ name: 'qa_tap_xy', arguments: { x: 5000, y: 10 } });
+    assert.equal(off.isError, true);
+    assert.match(textOf(off), /화면\(400x800\) 밖/);
+  });
+});
+
 test('MCP accepts report languages in tools and prompts and writes the selected report language', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'qa-mcp-report-'));
   try {

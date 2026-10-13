@@ -19,7 +19,7 @@ function existsSyncEarly(path: string): boolean {
     return false;
   }
 }
-export const MOBILE_PKG = process.env.QA_MOBILE_MCP ?? "@mobilenext/mobile-mcp@1.0.5";
+export const MOBILE_PKG = process.env.QA_MOBILE_MCP ?? "@mobilenext/mobile-mcp@1.0.10";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -116,18 +116,32 @@ export async function device(): Promise<string> {
   if (state.deviceId) return state.deviceId;
   const t = textOf(await callChild(mobile(), "mobile_list_available_devices", {}));
   const m = t.match(/"id":"([^"]+)"/);
-  if (!m) throw new Error(`기기를 찾지 못했습니다: ${t.slice(0, 200)}`);
+  // mobile-mcp 1.0.9+ 는 기기가 없으면 원격 클라우드 기기를 권하라는 hint 를 붙인다 — 그대로 넘기지 않는다.
+  if (!m) throw new Error("연결된 기기·부팅된 시뮬레이터가 없습니다. 실기기는 USB 연결·잠금 해제·신뢰를 확인하고 qa_doctor 로 진단하세요.");
   return (state.deviceId = m[1]);
 }
 export const m = async (name: string, args: Record<string, unknown> = {}) =>
   callChild(mobile(), name, { device: await device(), ...args });
-let screenSize: { w: number; h: number } | undefined;
+/** mobile-mcp 오류 문구에서 mobilecli 실행 경로 줄을 빼고 원인만 남긴다. */
+export const errorText = (r: ToolResult) => {
+  const t = textOf(r).trim();
+  const cause = /^Error: Command failed:/.test(t) ? t.split("\n").slice(1).join(" ").trim() : "";
+  return (cause || t).slice(0, 300);
+};
+/** 실패하면 안 되는 조작(탭·스와이프·앱 실행). mobile-mcp 가 isError 를 주면 예외로 올려 도구 오류·증거 수집으로 이어지게 한다. */
+export async function act(name: string, args: Record<string, unknown> = {}) {
+  const r = await m(name, args);
+  if (r.isError) throw new Error(`${name} 실패: ${errorText(r)}`);
+  return r;
+}
+let screenSize: { w: number; h: number; guess?: boolean } | undefined;
 /** 기기 화면 크기(탭 좌표 기준). 스와이프 시작점 등 기기별 값 계산용. */
-export async function getScreenSize(): Promise<{ w: number; h: number }> {
+export async function getScreenSize(): Promise<{ w: number; h: number; guess?: boolean }> {
   if (screenSize) return screenSize;
   const t = textOf(await m("mobile_get_screen_size"));
   const mm = t.match(/(\d+)\s*x\s*(\d+)/);
-  return (screenSize = mm ? { w: +mm[1], h: +mm[2] } : { w: 390, h: 844 });
+  // 크기를 못 읽으면 흔한 값으로 대신한다(guess) — 좌표 범위 검사는 이때 건너뛴다.
+  return (screenSize = mm ? { w: +mm[1], h: +mm[2] } : { w: 390, h: 844, guess: true });
 }
 export const resetScreenSize = () => (screenSize = undefined);
 export async function driver(args: Record<string, unknown>): Promise<string> {
