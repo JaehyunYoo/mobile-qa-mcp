@@ -402,6 +402,9 @@ xcrun simctl openurl <udid> 'myscheme://open?…'
 
 - Prefer `qa_read_screen` (text) to `qa_screenshot` (image), and use `filter` for the relevant area.
 - Use `qa_expect` for one-line PASS/FAIL checks.
+- After an action, tools return **only what changed** on screen by default (`screen: "diff"`); see [Screen responses](#screen-responses). Pass `waitFor` when you know what should appear: a passing wait returns no screen at all.
+- `qa_read_screen` omits `@x,y` coordinates unless `coords: true`; they are only needed for `qa_tap_xy`.
+- `report.md` shows the total response size (characters and images) so you can compare runs.
 - Reserve images for **visual checks**, such as layout and color.
 
 ### 4-6. Third-party app QA (black box)
@@ -438,8 +441,17 @@ Ambiguous matches return a **candidate list without tapping**, including refs an
 
 ### Waiting
 
-- Action tools (`qa_tap`, `qa_tap_xy`, `qa_swipe`, `qa_launch`) accept `waitFor: {text|id, state}` and `timeoutMs` to **wait for a condition**. Otherwise, they wait for **screen stability** (two identical consecutive reads, normally up to three seconds; launch uses its own timeout).
+- Action tools (`qa_tap`, `qa_tap_xy`, `qa_swipe`, `qa_launch`) accept `waitFor: {text|id, state}` and `timeoutMs` to **wait for a condition**. Otherwise, they wait for **screen stability** (two identical consecutive reads, normally up to six seconds because each screen read takes about a second on physical devices; launch uses its own timeout).
 - `qa_expect(..., timeoutMs)` retries until the condition matches or times out. Use `qa_wait_until` for loading indicators to disappear (`absent`), buttons to become enabled (`enabled`), or screen stability (`stable: true`).
+
+### Screen responses
+
+Action tools (`qa_tap`, `qa_tap_xy`, `qa_type`, `qa_swipe`, `qa_launch`, `qa_wait_until`) accept `screen: "diff" | "full" | "none"`.
+
+- `diff` (default): only changes since the last screen you were shown — `+` added, `-` removed, `~` changed value/state. An unchanged screen returns one line. When most of the screen is new (navigation, page scroll), it falls back to the full screen and renumbers refs.
+- Elements that stay on screen **keep their refs**, even when scrolling or the keyboard shifts the whole layout; the header then reports the move (for example `화면 이동 y-106`; runtime messages are in Korean). Re-read coordinates before using `qa_tap_xy` after a move.
+- The iOS keyboard is folded into one line, `⌨ 키보드 열림 — return 키: r72 [Button]검색 id=Search`, so its keys do not crowd the response.
+- Defaults: a passing `waitFor` and a verified `qa_type` return `none`; `qa_launch` without `waitFor` returns `full`.
 
 ### Verification and recovery
 
@@ -455,17 +467,17 @@ Ambiguous matches return a **candidate list without tapping**, including refs an
 | `qa_doctor` | `logFile?`, `dtdUri?` | Diagnostic table: Node, mobile-mcp, device, automation agent, screen reading, identifiers, Dart, flutter run log, DTD, flutter_driver; available capabilities and recovery steps |
 | `qa_connect` | `logFile?`, `dtdUri?`, `device?` | Select device; for Flutter, connect to DTD and apply `set_frame_sync false`. Omit `logFile` for native/third-party apps |
 | `qa_apps` | `filter?` | Search installed app names and bundle IDs |
-| `qa_launch` | `packageName`, `restart?`, `waitFor?`, `timeoutMs?` | Launch/restart → wait for stability or condition → screen summary |
-| `qa_read_screen` | `filter?`, `limit?`(60) | Compact lines: `ref [type]text = value id=identifier (disabled) @x,y` |
-| `qa_tap` | Selector, `key?`, `allowDanger?`, `waitFor?`, `timeoutMs?` | Tap a match; Flutter text/tooltip fallback when not found. Apply danger-word checks, wait, then return a screen summary |
-| `qa_tap_xy` | `x`, `y`, `waitFor?`, `timeoutMs?` | Coordinate tap for unlabeled targets. Danger-word checks do not apply |
-| `qa_type` | `field?`/`id?`/`ref?`, `index?`, `text`, `timeoutMs?`(3000) | Focus field → enter text through Dart `enter_text` or device keyboard → verify value |
+| `qa_launch` | `packageName`, `restart?`, `waitFor?`, `timeoutMs?`, `screen?` | Launch/restart → wait for stability or condition → screen summary |
+| `qa_read_screen` | `filter?`, `limit?`(60), `coords?` | Compact lines: `ref [type]text = value id=identifier (disabled)`; `coords: true` adds `@x,y` |
+| `qa_tap` | Selector, `key?`, `allowDanger?`, `waitFor?`, `timeoutMs?`, `screen?` | Tap a match; Flutter text/tooltip fallback when not found. Apply danger-word checks, wait, then return a screen summary |
+| `qa_tap_xy` | `x`, `y`, `waitFor?`, `timeoutMs?`, `screen?` | Coordinate tap for unlabeled targets. Danger-word checks do not apply |
+| `qa_type` | `field?`/`id?`/`ref?`, `index?`, `text`, `timeoutMs?`(3000), `screen?` | Focus field → enter text through Dart `enter_text` or device keyboard → verify value |
 | `qa_expect` | Selector, `state?`, `timeoutMs?` | One-line PASS/FAIL; automatically capture evidence on failure during a recorded run |
-| `qa_wait_until` | `text?`/`id?`, `state?`, `stable?`, `timeoutMs?`(10000) | Wait for a condition or stable screen |
+| `qa_wait_until` | `text?`/`id?`, `state?`, `stable?`, `timeoutMs?`(10000), `screen?` | Wait for a condition or stable screen |
 | `qa_dismiss_system` | None | Dismiss blocking dialogs using Korean/English/Japanese defaults and project rules |
-| `qa_swipe` | `direction`, `fromY?`, `distance?`, `waitFor?`, `timeoutMs?` | Swipe; when specifying `fromY`, start horizontally at the screen center |
+| `qa_swipe` | `direction`, `fromY?`, `distance?`, `waitFor?`, `timeoutMs?`, `screen?` | Swipe; when specifying `fromY`, start horizontally at the screen center |
 | `qa_screenshot` | None | Screenshot image |
-| `qa_errors` | None | Flutter runtime errors when connected to Dart, plus device crash list |
+| `qa_errors` | None | Flutter runtime errors when connected to Dart, plus device crashes since this QA session started |
 | `qa_run_start` | `name`, `scenario?`, `app?`, `appVersion?`, `dir?`, `reportLanguage?` | Start recording and create the run directory below |
 | `qa_step` | `title`, `expected?`, `result`(pass/fail/skip), `actual?`, `note?` | Record a step result; capture evidence on failure |
 | `qa_run_end` | `summary?` | Generate `report.md`; return result counts and path |
@@ -476,11 +488,13 @@ Ambiguous matches return a **candidate list without tapping**, including refs an
 ```text
 qa/runs/20260928-112000-TODO-002/
 ├── meta.json        Device, app/version, git branch/commit/dirty state, Dart connection
-├── steps.jsonl      Tool calls (name, arguments, result, ms) and qa_step results
-├── report.md        Summary (PASS/FAIL/SKIP/tool errors) and step table with evidence
+├── steps.jsonl      Tool calls (name, arguments, result, ms, response size) and qa_step results
+├── report.md        Summary (PASS/FAIL/SKIP/element not found/tool errors, response size) and step table with evidence
 └── evidence/        On failure: 003-expect-저장.png, .elements.txt (raw screen elements),
                      and .errors.txt (runtime errors/crashes)
 ```
+
+Report categories: ❌ FAIL is a failed `qa_step` or `qa_expect`; 🔍 **element not found** means the target was missing from the accessibility tree (not an app defect — check the screenshot); ⚠️ tool error covers everything else, such as stability timeouts or ambiguous selectors. A wait that fails right after an action is merged into one row (`qa_tap → wait`).
 
 Only summaries and paths return to the conversation to save tokens. Change the location with `QA_RUNS_DIR` or the `runsDir` configuration key.
 

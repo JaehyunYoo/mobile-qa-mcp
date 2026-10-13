@@ -8,14 +8,20 @@ import { z } from "zod";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { CONFIG } from "./core.js";
 import { REPORT_LANGUAGES, type ReportLanguage } from "./report-language.js";
 
 const GUIDES = join(dirname(fileURLToPath(import.meta.url)), "..", "guides");
 const guide = (f: string) => readFileSync(join(GUIDES, f), "utf8");
 const LANGUAGE_INSTRUCTIONS = "Write user-facing explanations, scenarios, and reports in the user's requested language, or the conversation language if unspecified. Preserve exact UI labels, input hints, expected text, test data, IDs, paths, tool names, and argument values in their original language; never translate selectors to match these English instructions.";
+/** 리포트 문장은 도구 로그가 아니라 QA 담당자가 읽는 사람에게 설명하는 말투로 쓴다. */
+const REPORT_VOICE = "Write qa_step title/expected/actual/note and the qa_run_end summary the way a QA tester explains results to a reader: full polite sentences saying what was done, what was seen, and why it passes or fails (e.g. Korean: \"제목을 입력했더니 생성 버튼이 활성화되었습니다.\"). Avoid tool jargon (refs like r12, waitFor, error codes); if a check relied on a screenshot or a coordinate tap because the element is missing from the accessibility tree, say so plainly and state that it is not an app defect.";
 const reportLanguageInstruction = (language?: ReportLanguage) => language
   ? `Use reportLanguage: "${language}" in qa_run_start and write scenario result summaries, step descriptions, and the final report in that language. Preserve quoted UI text.`
-  : "For qa_run_start, pass reportLanguage matching the user's requested language or conversation language when it is en, ko, or ja. Otherwise omit it to use the project reportLanguage setting (default en). Preserve quoted UI text.";
+  : REPORT_LANGUAGES.includes(CONFIG.reportLanguage as ReportLanguage)
+    // 프로젝트가 언어를 정해 두었으면 대화 언어가 달라도 그 언어가 기본이다.
+    ? `This project sets reportLanguage: "${CONFIG.reportLanguage}" (qa/qa.config.json). Omit reportLanguage in qa_run_start unless the user explicitly asks for another report language, and write qa_step text and the qa_run_end summary in the run's report language (qa_run_start returns it) even when the conversation is in a different language. Preserve quoted UI text.`
+    : "For qa_run_start, pass reportLanguage matching the user's requested language or conversation language when it is en, ko, or ja. Otherwise omit it to use the project reportLanguage setting (default en). Preserve quoted UI text.";
 const RECOVERY_INSTRUCTIONS = `Failure recovery (at most one corrective retry per failed step):
 - STALE_REF: read the screen again, identify the intended target, and use a fresh ref or stable id. A stale ref never proves absence; check absence with id or exact text.
 - Ambiguous/invalid selector: inspect candidates and choose a verified id/ref/index. Do not guess the first candidate. Enabled/disabled checks need a unique target.
@@ -30,7 +36,7 @@ export const SERVER_INSTRUCTIONS = `Mobile app QA server for owned and third-par
 1) Loop: read with qa_read_screen → decide → act with qa_tap/qa_type → verify. Do not rely on memorized coordinates; one-time guides and popups can change the flow.
 2) Select: prefer ref (e.g. r12 from the latest screen), then id (accessibility identifier), then text. Resolve ambiguous matches using ref/index. Use qa_tap_xy only for unlabeled icons.
 3) Wait: use conditions instead of fixed delays: qa_tap(waitFor: {text, state}), qa_expect(timeoutMs), or qa_wait_until (e.g. until loading disappears).
-4) Record: qa_run_start → qa_step(title, expected, result, actual) for each step → qa_run_end. Failure evidence (screenshots, elements, errors) is saved automatically; return paths in the conversation.
+4) Record: qa_run_start → qa_step(title, expected, result, actual) for each step → qa_run_end. Failure evidence (screenshots, elements, errors) is saved automatically; return paths in the conversation. ${REPORT_VOICE}
 5) Prefer text: use qa_screenshot for layout/color checks or coordinate targeting.
 6) Safety: clean up created data. Use allowDanger for dangerous actions (deletion, payment, logout, etc.; extend via qa/qa.config.json) only after user approval. Hand passwords, verification codes, biometrics, and personal account selection to a person. Take particular care with third-party app actions that affect real services, such as payments, posting, or sending messages.
 7) Explain the intended actions and obtain confirmation before device interaction. Finish with qa_finish.
@@ -116,7 +122,7 @@ Before starting:
 For each step:
 1. Read the current screen with qa_read_screen, using filter for the relevant area.
 2. Act with qa_tap / qa_type / qa_swipe. Prefer ref/id and resolve ambiguous matches. Use waitFor for an expected screen transition. For unlabeled icons, inspect qa_screenshot before qa_tap_xy.
-3. Evaluate the expected result with qa_expect (use timeoutMs for slow screens), then record it with qa_step(title, expected, result, actual).
+3. Evaluate the expected result with qa_expect (use timeoutMs for slow screens), then record it with qa_step(title, expected, result, actual). ${REPORT_VOICE}
 4. On FAIL, evidence is saved automatically. Decide whether later steps can proceed; otherwise skip to cleanup. Run qa_doctor if a tool error appears environment-related.
 - For unexpected guides, popups, or permission dialogs, use qa_dismiss_system, read the screen, and follow the bounded recovery rules below before retrying the step.
 - Dangerous steps: ${allowDanger === "yes" ? "use allowDanger only for steps explicitly listed in the scenario." : "obtain my confirmation before using allowDanger."}

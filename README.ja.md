@@ -401,6 +401,9 @@ xcrun simctl openurl <udid> 'myscheme://open?…'
 
 - 画面の確認は`qa_screenshot`（画像）より`qa_read_screen`（テキスト）を優先し、`filter`で対象を絞ります。
 - 判定は`qa_expect`の1行PASS/FAILを使います。
+- 操作後の応答は既定で**変化した部分だけ**を返します（`screen: "diff"`）。[画面応答](#画面応答)を参照してください。表示される画面が分かっている場合は`waitFor`を指定してください。待機が成功すると画面要約なしの1行になります。
+- `qa_read_screen`は`coords: true`のときだけ`@x,y`座標を付けます（座標は`qa_tap_xy`にのみ必要）。
+- `report.md`に応答サイズ（文字数・画像数）が表示され、実行同士を比較できます。
 - 画像はレイアウトや色など、**視覚的な確認が必要な場合**に使います。
 
 ### 4-6. 他社アプリのQA（ブラックボックス）
@@ -437,8 +440,17 @@ xcrun simctl openurl <udid> 'myscheme://open?…'
 
 ### 待機
 
-- 操作ツール（`qa_tap`、`qa_tap_xy`、`qa_swipe`、`qa_launch`）に`waitFor: {text|id, state}`と`timeoutMs`を渡すと、**条件成立まで待機**します。省略時は**画面が安定するまで**待ちます（連続2回同じ画面、通常最大3秒。起動時は別のタイムアウト）。
+- 操作ツール（`qa_tap`、`qa_tap_xy`、`qa_swipe`、`qa_launch`）に`waitFor: {text|id, state}`と`timeoutMs`を渡すと、**条件成立まで待機**します。省略時は**画面が安定するまで**待ちます（連続2回同じ画面、通常最大6秒（実機では画面読み取り1回に約1秒）。起動時は別のタイムアウト）。
 - `qa_expect(..., timeoutMs)`は条件成立またはタイムアウトまで再確認します。`qa_wait_until`はローディング消失（`absent`）、ボタン有効化（`enabled`）、画面安定（`stable: true`）に使えます。
+
+### 画面応答
+
+操作ツール（`qa_tap`、`qa_tap_xy`、`qa_type`、`qa_swipe`、`qa_launch`、`qa_wait_until`）は`screen: "diff" | "full" | "none"`を受け付けます。
+
+- `diff`（既定）: 直前に返した画面からの変化だけ — `+`追加、`-`消えた要素、`~`値・状態の変化。変化がなければ1行。画面の大半が新しい場合（画面遷移・ページスクロール）は全画面に切り替え、refを振り直します。
+- 画面に残る要素は**refが維持**されます。スクロールやキーボードで画面全体がずれても同様で、その場合は見出しに`화면 이동 y-106`のように移動量が表示されます（実行時メッセージは韓国語）。移動後に`qa_tap_xy`を使う場合は座標を読み直してください。
+- iOSキーボードは`⌨ 키보드 열림 — return 키: r72 [Button]검색 id=Search`の1行にまとめ、キーが応答を埋めないようにします。
+- 既定値: 成功した`waitFor`と確認済みの`qa_type`は`none`、`waitFor`なしの`qa_launch`は`full`。
 
 ### 検証と失敗時の復旧
 
@@ -454,17 +466,17 @@ xcrun simctl openurl <udid> 'myscheme://open?…'
 | `qa_doctor` | `logFile?`, `dtdUri?` | Node、mobile-mcp、端末、エージェント、画面取得、識別子、Dart、flutter runログ、DTD、flutter_driverを診断。利用可能な機能と復旧方法を表示 |
 | `qa_connect` | `logFile?`, `dtdUri?`, `device?` | 端末を選択。FlutterではDTDに接続し`set_frame_sync false`。ネイティブ・他社アプリでは`logFile`省略 |
 | `qa_apps` | `filter?` | インストール済みアプリの名前・バンドルIDを検索 |
-| `qa_launch` | `packageName`, `restart?`, `waitFor?`, `timeoutMs?` | 起動・再起動 → 安定または条件待機 → 画面要約 |
-| `qa_read_screen` | `filter?`, `limit?`(60) | `ref [種類]テキスト = 値 id=識別子 (無効) @x,y`形式の要約 |
-| `qa_tap` | 選択子, `key?`, `allowDanger?`, `waitFor?`, `timeoutMs?` | 要素をタップ。見つからなければFlutterのテキスト・ツールチップへフォールバック。危険語を確認し、待機後に画面要約 |
-| `qa_tap_xy` | `x`, `y`, `waitFor?`, `timeoutMs?` | 名前・IDのない対象を座標でタップ。危険語の制限は適用されない |
-| `qa_type` | `field?`/`id?`/`ref?`, `index?`, `text`, `timeoutMs?`(3000) | 入力欄をタップ → Dartの`enter_text`または端末キーボードで入力 → 値を確認 |
+| `qa_launch` | `packageName`, `restart?`, `waitFor?`, `timeoutMs?`, `screen?` | 起動・再起動 → 安定または条件待機 → 画面要約 |
+| `qa_read_screen` | `filter?`, `limit?`(60), `coords?` | `ref [種類]テキスト = 値 id=識別子 (無効)`形式の要約。`coords: true`で`@x,y`を追加 |
+| `qa_tap` | 選択子, `key?`, `allowDanger?`, `waitFor?`, `timeoutMs?`, `screen?` | 要素をタップ。見つからなければFlutterのテキスト・ツールチップへフォールバック。危険語を確認し、待機後に画面要約 |
+| `qa_tap_xy` | `x`, `y`, `waitFor?`, `timeoutMs?`, `screen?` | 名前・IDのない対象を座標でタップ。危険語の制限は適用されない |
+| `qa_type` | `field?`/`id?`/`ref?`, `index?`, `text`, `timeoutMs?`(3000), `screen?` | 入力欄をタップ → Dartの`enter_text`または端末キーボードで入力 → 値を確認 |
 | `qa_expect` | 選択子, `state?`, `timeoutMs?` | 1行のPASS/FAIL。記録中のFAILでは証拠を自動保存 |
-| `qa_wait_until` | `text?`/`id?`, `state?`, `stable?`, `timeoutMs?`(10000) | 条件成立・画面安定を待機 |
+| `qa_wait_until` | `text?`/`id?`, `state?`, `stable?`, `timeoutMs?`(10000), `screen?` | 条件成立・画面安定を待機 |
 | `qa_dismiss_system` | なし | 既定の韓・英・日規則とプロジェクト規則でダイアログを処理 |
-| `qa_swipe` | `direction`, `fromY?`, `distance?`, `waitFor?`, `timeoutMs?` | スワイプ。`fromY`指定時の開始xは画面中央 |
+| `qa_swipe` | `direction`, `fromY?`, `distance?`, `waitFor?`, `timeoutMs?`, `screen?` | スワイプ。`fromY`指定時の開始xは画面中央 |
 | `qa_screenshot` | なし | 画像を取得 |
-| `qa_errors` | なし | Dart接続時のFlutter実行時エラー + 端末クラッシュ一覧 |
+| `qa_errors` | なし | Dart接続時のFlutter実行時エラー + このQAセッション開始以降の端末クラッシュ |
 | `qa_run_start` | `name`, `scenario?`, `app?`, `appVersion?`, `dir?`, `reportLanguage?` | 実行記録を開始し、下記のフォルダーを作成 |
 | `qa_step` | `title`, `expected?`, `result`(pass/fail/skip), `actual?`, `note?` | 段階の判定を記録。failで証拠を保存 |
 | `qa_run_end` | `summary?` | `report.md`を生成し、結果件数とパスを返す |
@@ -475,11 +487,13 @@ xcrun simctl openurl <udid> 'myscheme://open?…'
 ```text
 qa/runs/20260928-112000-TODO-002/
 ├── meta.json        端末、アプリ・バージョン、gitブランチ・コミット・未コミット状態、Dart接続
-├── steps.jsonl      ツール呼び出し（名前・引数・結果・ms）とqa_stepの判定
-├── report.md        要約（PASS/FAIL/SKIP・ツールエラー）、期待値・実測値・時間・証拠の表
+├── steps.jsonl      ツール呼び出し（名前・引数・結果・ms・応答サイズ）とqa_stepの判定
+├── report.md        要約（PASS/FAIL/SKIP・要素未検出・ツールエラー、応答サイズ）、期待値・実測値・時間・証拠の表
 └── evidence/        失敗時：003-expect-저장.png、.elements.txt（画面要素の原文）、
                      .errors.txt（実行時エラー・クラッシュ）
 ```
+
+レポートの分類: ❌ FAILは失敗した`qa_step`・`qa_expect`、🔍 **要素未検出**はアクセシビリティツリーに対象がなかった場合（アプリの不具合ではない — スクリーンショットで確認）、⚠️ ツールエラーはそれ以外（画面安定待機のタイムアウト、候補が複数ある選択子など）。操作直後の待機失敗は1行（`qa_tap → wait`）にまとめます。
 
 会話には要約とパスだけを返し、トークンを節約します。保存先は`QA_RUNS_DIR`または設定の`runsDir`で変更できます。
 

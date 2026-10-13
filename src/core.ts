@@ -208,25 +208,127 @@ export async function screen(): Promise<El[]> {
 }
 
 const NOISE = /^(Wi‑?Fi|총 \d|배터리|\d{1,2}:\d{2}$|Home screen icons|label-view)/;
-export function summarize(els: El[], limit = 60): string {
-  const lines = els
-    .filter((e) => !NOISE.test(e.label))
-    .slice(0, limit)
-    .map((e) => {
-      const text = [e.label, e.value && e.value !== e.label ? `= ${e.value}` : ""]
-        .filter(Boolean)
-        .join(" ")
-        .replace(/\n/g, " / ");
-      const kind = /Button|TextField|Switch|Cell|Icon|Image|EditText/.test(e.type) ? `[${e.type}]` : "";
-      const id = e.id ? ` id=${e.id}` : "";
-      return `${e.ref} ${kind}${text}${id}${e.disabled ? " (비활성)" : ""} @${cx(e)},${cy(e)}`;
-    });
+const line = (e: El, coords: boolean) => {
+  const text = [e.label, e.value && e.value !== e.label ? `= ${e.value}` : ""]
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\n/g, " / ");
+  const kind = /Button|TextField|Switch|Cell|Icon|Image|EditText/.test(e.type) ? `[${e.type}]` : "";
+  const id = e.id ? ` id=${e.id}` : "";
+  return `${e.ref} ${kind}${text}${id}${e.disabled ? " (비활성)" : ""}${coords ? ` @${cx(e)},${cy(e)}` : ""}`;
+};
+
+/**
+ * iOS 키보드 요소. 키보드 틀(inputView 등)이 보일 때만, 그 위쪽 경계 아래에 있는 기능 키(shift·삭제·이모지·space·받아쓰기·return)를 키보드로 본다.
+ * 화면 요약·변경분에서는 이것들을 "⌨ 키보드" 한 줄로 접는다 — return 키만 ref 와 함께 남긴다(검색·완료를 눌러야 할 수 있으므로).
+ */
+const KB_FRAME = /^(SystemInputAssistantView|inputView|UIKeyboardLayoutStar Preview)$/;
+const KB_LABEL = /^(CenterPageView|shift|다음 키보드|Next keyboard|次のキーボード)$/;
+const KB_ID = /^(delete|more|emoji|space|dictation|shift)$/;
+const KB_RETURN_ID = /^(Return|Go|Google|Join|Next|Route|Search|Send|Yahoo|Done|Emergency call|Continue)$/;
+export function keyboardOf(els: El[]): { keys: Set<El>; returnKey?: El } {
+  const frame = els.filter((e) => KB_FRAME.test(e.label));
+  if (!frame.length) return { keys: new Set() };
+  const top = Math.min(...frame.map((e) => e.y));
+  const inside = els.filter((e) => e.y >= top);
+  const returnKey = inside.find((e) => KB_RETURN_ID.test(e.id));
+  const keys = new Set([...frame, ...inside.filter((e) => KB_LABEL.test(e.label) || KB_ID.test(e.id) || e === returnKey)]);
+  return { keys, returnKey };
+}
+const keyboardLine = (kb: { returnKey?: El }) => `⌨ 키보드 열림${kb.returnKey ? ` — return 키: ${line(kb.returnKey, false)}` : ""}`;
+
+/** 좌표(@x,y)는 기본으로 뺀다 — qa_tap_xy 를 쓸 때만 필요(coords=true). */
+export function summarize(els: El[], limit = 60, coords = false): string {
+  const kb = keyboardOf(els);
+  const lines = els.filter((e) => !NOISE.test(e.label) && !kb.keys.has(e)).slice(0, limit).map((e) => line(e, coords));
+  if (kb.keys.size) lines.push(keyboardLine(kb));
   return lines.join("\n") || "(읽을 수 있는 요소 없음 — 웹뷰/이미지 화면일 수 있음. qa_screenshot 사용)";
 }
-/** 스냅샷을 ref 저장소에 기록하고 요약을 돌려준다(qa_read_screen·조작 후 화면 요약 공통). */
-export function remember(els: El[], limit = 40): string {
-  state.lastRefs = new Map(els.map((e) => [e.ref, e]));
-  return summarize(els, limit);
+
+/**
+ * 스냅샷을 ref 저장소에 기록한다. 같은 요소(type + id/label, 위치 근접)는 이전 ref 를 유지하고 새 요소만 새 ref 를 받는다 —
+ * 그래서 에이전트가 이전에 본 ref 는 화면 일부만 바뀌어도 계속 유효하다. 요소 절반 이상이 새것이면(화면 이동) r1 부터 다시 매긴다.
+ * 스크롤·키보드로 화면 전체가 밀리면 위치 비교가 깨지므로, 양쪽에서 유일한 요소(앵커)들의 이동량 중앙값만큼 보정해서 비교한다.
+ * id 가 양쪽에서 유일한 요소는 위치와 무관하게 같은 요소로 본다.
+ */
+export type ScreenDiff = {
+  added: El[];
+  removed: El[];
+  changed: Array<{ el: El; was: El }>;
+  kept: number;
+  shift: { dx: number; dy: number };
+  /** 키보드가 새로 열렸거나(opened) 닫혔으면(closed) — 키보드 요소 자체는 added/removed 에서 뺀다. */
+  keyboard?: { opened?: { returnKey?: El }; closed?: boolean };
+};
+const median = (xs: number[]) => (xs.length ? [...xs].sort((a, b) => a - b)[xs.length >> 1] : 0);
+export function snapshot(els: El[]): { els: El[]; diff?: ScreenDiff } {
+  const prev = [...state.lastRefs.values()];
+  const used = new Set<El>();
+  const key = (e: El) => `${e.type}|${e.id || e.label}`;
+  const counts = (list: El[]) => list.reduce((m, e) => m.set(key(e), (m.get(key(e)) ?? 0) + 1), new Map<string, number>());
+  const nPrev = counts(prev);
+  const nCur = counts(els);
+  const unique = (e: El) => nPrev.get(key(e)) === 1 && nCur.get(key(e)) === 1;
+  const anchors = els.filter(unique).map((e) => [e, prev.find((q) => key(q) === key(e))!] as const);
+  const shift = { dx: median(anchors.map(([e, q]) => cx(e) - cx(q))), dy: median(anchors.map(([e, q]) => cy(e) - cy(q))) };
+  const near = (q: El, e: El) => Math.abs(cx(q) + shift.dx - cx(e)) < 40 && Math.abs(cy(q) + shift.dy - cy(e)) < 40;
+  const pairs = els.map((e) => {
+    const p = prev.find((q) => !used.has(q) && key(q) === key(e) && ((e.id && unique(e)) || near(q, e)));
+    if (p) used.add(p);
+    return { e, p };
+  });
+  // 키보드가 열리면 기능 키가 한꺼번에 생긴다 — 화면이 바뀌었는지 판단할 때는 빼고 센다.
+  const kbCur = keyboardOf(els);
+  const kbPrev = keyboardOf(prev);
+  const fresh = pairs.filter((x) => !x.p && !kbCur.keys.has(x.e)).length;
+  if (!prev.length || fresh * 2 > els.length - kbCur.keys.size) {
+    state.lastRefs = new Map(els.map((e) => [e.ref, e]));
+    return { els };
+  }
+  let seq = Math.max(0, ...prev.map((q) => +q.ref.slice(1) || 0));
+  const out = pairs.map(({ e, p }) => ({ ...e, ref: p ? p.ref : `r${++seq}` }));
+  const quiet = (e: El) => !NOISE.test(e.label);
+  const returnRef = kbCur.returnKey && out[els.indexOf(kbCur.returnKey)];
+  const diff: ScreenDiff = {
+    added: out.filter((e, i) => !pairs[i].p && !kbCur.keys.has(els[i])).filter(quiet),
+    removed: prev.filter((q) => !used.has(q) && !kbPrev.keys.has(q)).filter(quiet),
+    // 키보드 안의 변화는 return 키(입력하면 활성화되는 검색·완료 등)만 알린다.
+    changed: out.flatMap((e, i) => {
+      const p = pairs[i].p;
+      const shown = !kbCur.keys.has(els[i]) || els[i] === kbCur.returnKey;
+      return p && shown && quiet(e) && (p.value !== e.value || p.label !== e.label || p.disabled !== e.disabled) ? [{ el: e, was: p }] : [];
+    }),
+    kept: pairs.filter((x) => x.p).length,
+    shift,
+    keyboard: kbCur.keys.size && !kbPrev.keys.size ? { opened: { returnKey: returnRef } } : !kbCur.keys.size && kbPrev.keys.size ? { closed: true } : undefined,
+  };
+  state.lastRefs = new Map(out.map((e) => [e.ref, e]));
+  return { els: out, diff };
+}
+
+export type ScreenMode = "diff" | "full" | "none";
+/** 조작 뒤 화면 응답. diff=직전에 보여 준 화면 대비 변경분만, full=전체, none=아무것도 안 줌(상태 변경 없음). */
+export function view(els: El[], mode: ScreenMode = "diff", limit = 40): string {
+  if (mode === "none") return "";
+  const snap = snapshot(els);
+  if (mode === "full" || !snap.diff) return `--- 화면 ---\n${summarize(snap.els, limit)}`;
+  const { added, removed, changed, kept, shift, keyboard } = snap.diff;
+  // 요소는 그대로여도 화면이 밀렸으면(스크롤·키보드) 알려 준다 — 좌표를 쓰는 경우 다시 읽어야 한다.
+  const moved = Math.abs(shift.dx) >= 10 || Math.abs(shift.dy) >= 10 ? `, 화면 이동 ${shift.dx ? `x${shift.dx > 0 ? "+" : ""}${shift.dx} ` : ""}y${shift.dy > 0 ? "+" : ""}${shift.dy}` : "";
+  if (!added.length && !removed.length && !changed.length && !keyboard) return `--- 화면 변경 없음 (${kept}개 요소${moved}) ---`;
+  const cap = 25;
+  const rows = [
+    ...(keyboard?.opened ? [`+ ${keyboardLine(keyboard.opened)}`] : keyboard?.closed ? ["- ⌨ 키보드 닫힘"] : []),
+    ...added.map((e) => `+ ${line(e, false)}`),
+    ...removed.map((e) => `- "${(e.label || e.value || e.id).replace(/\n/g, " / ")}"`),
+    ...changed.map(({ el, was }) => `~ ${line(el, false)}${was.value !== el.value ? ` (이전: ${was.value || "빈 값"})` : ""}`),
+  ];
+  const shown = rows.slice(0, cap).join("\n");
+  return `--- 화면 변경 (+${added.length} −${removed.length} ~${changed.length}, 유지 ${kept}${moved}) ---\n${shown}${rows.length > cap ? `\n…외 ${rows.length - cap}줄 (qa_read_screen 으로 전체 확인)` : ""}`;
+}
+/** 전체 화면을 보여 주고 ref 를 기록한다(qa_read_screen 용). */
+export function remember(els: El[], limit = 40, coords = false): string {
+  return summarize(snapshot(els).els, limit, coords);
 }
 
 // ---------------------------------------------------------------- selectors
@@ -271,6 +373,28 @@ export function resolve(els: El[], sel: Selector): Resolved {
 export function describeCandidates(c: El[]): string {
   return c.map((e, i) => `  index ${i}: ${e.ref} ${(e.label || e.value).replace(/\n/g, " / ")}${e.id ? ` id=${e.id}` : ""} @${cx(e)},${cy(e)}`).join("\n");
 }
+
+// ---------------------------------------------------------------- crashes
+const SESSION_START = Date.now();
+
+/**
+ * 기기 크래시 목록(JSON)에서 since 이후 것만 남긴다 — 예전 크래시(다른 앱 포함)가 응답을 채우지 않게.
+ * ponytail: timestamp 를 이 Mac 의 로컬 시각으로 해석한다(기기와 시간대가 다르면 어긋남). 1분 여유를 둔다.
+ */
+export function crashesSince(raw: string, since: number): string {
+  let list: { timestamp?: string }[];
+  try {
+    list = JSON.parse(raw);
+    if (!Array.isArray(list)) return raw.slice(0, 1000);
+  } catch {
+    return raw.slice(0, 1000);
+  }
+  const recent = list.filter((c) => !(new Date(String(c.timestamp).replace(" ", "T")).getTime() < since - 60_000));
+  return recent.length ? JSON.stringify(recent).slice(0, 1000) : `없음 (이전 기록 ${list.length}건 제외)`;
+}
+
+/** 이 QA 세션(서버 시작) 이후의 기기 크래시만. */
+export const recentCrashes = async () => crashesSince(textOf(await m("mobile_list_crashes")), SESSION_START);
 
 // ---------------------------------------------------------------- waiting
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

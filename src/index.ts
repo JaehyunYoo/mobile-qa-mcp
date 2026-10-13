@@ -35,6 +35,9 @@ import {
   m,
   resetScreenSize,
   remember,
+  snapshot,
+  view,
+  type ScreenMode,
   resolve,
   screen,
   settle,
@@ -42,6 +45,7 @@ import {
   state,
   summarize,
   textOf,
+  recentCrashes,
   waitFor,
   waitForInputValue,
 } from "./core.js";
@@ -52,6 +56,10 @@ import { runDoctor } from "./doctor.js";
 type Out = { content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>; isError?: boolean };
 const ok = (text: string): Out => ({ content: [{ type: "text", text }] });
 const fail = (text: string): Out => ({ content: [{ type: "text", text }], isError: true });
+const size = (o: Out) => ({
+  chars: o.content.reduce((n, c) => n + (c.type === "text" ? c.text.length : 0), 0),
+  images: o.content.filter((c) => c.type === "image").length,
+});
 
 const server = new McpServer({ name: "mobile-qa", version: "0.5.0" }, { instructions: SERVER_INSTRUCTIONS });
 registerGuidance(server);
@@ -67,13 +75,15 @@ function tool<S extends z.ZodRawShape>(name: string, description: string, shape:
       out = fail(`${name} 오류: ${(e as Error).message}`);
       if (activeRun()) {
         const ev = await captureEvidence(`${name}-error`);
-        logStep({ tool: name, args, result: "fail", ms: Date.now() - t0, actual: (e as Error).message, evidence: ev });
+        logStep({ tool: name, args, result: "fail", ms: Date.now() - t0, actual: (e as Error).message, evidence: ev, ...size(out) });
         return out;
       }
     }
     if (activeRun() && !["qa_run_start", "qa_run_end", "qa_step"].includes(name)) {
       const first = out.content.find((c) => c.type === "text") as { text: string } | undefined;
-      logStep({ tool: name, args, result: out.isError ? "fail" : "ok", ms: Date.now() - t0, actual: first?.text.split("\n")[0]?.slice(0, 200) });
+      // 도구가 직접 저장한 증거(qa_expect FAIL 등)는 응답의 "증거: a, b" 줄로만 알 수 있다 — 리포트 표에 붙인다.
+      const evidence = first?.text.match(/^증거: (.+)$/m)?.[1].split(", ");
+      logStep({ tool: name, args, result: out.isError ? "fail" : "ok", ms: Date.now() - t0, actual: first?.text.split("\n")[0]?.slice(0, 200), evidence, ...size(out) });
     }
     return out;
   }) as never);
@@ -87,6 +97,10 @@ const sel = {
   index: z.number().optional().describe("Zero-based index when multiple candidates match"),
   exact: z.boolean().optional().describe("If true, require an exact match"),
 };
+const screenMode = z
+  .enum(["diff", "full", "none"])
+  .optional()
+  .describe("Screen part of the response: diff = only changes since the last screen you were shown (default; full when the screen changed a lot), full = whole screen, none = nothing. After a passing waitFor the default is none.");
 const condShape = z
   .object({
     text: z.string().optional(),
@@ -104,17 +118,17 @@ const pick = (a: { text?: string; id?: string; ref?: string; index?: number; exa
 });
 const labelOf = (e: El) => (e.label || e.value || e.id).replace(/\n/g, " / ");
 
-async function afterSettle(action: string, result: Awaited<ReturnType<typeof settle>>): Promise<Out> {
+async function afterSettle(action: string, result: Awaited<ReturnType<typeof settle>>, scr?: ScreenMode): Promise<Out> {
   const message = result.stable ? `Screen stable (${result.elapsedMs}ms)` : `WAIT_TIMEOUT: screen did not stabilize (${result.elapsedMs}ms). Read the screen before retrying any action.`;
   if (!result.stable && activeRun()) {
     const evidence = await captureEvidence("stability-timeout");
     logStep({ tool: "wait", result: "fail", ms: result.elapsedMs, expected: "stable screen", actual: message, evidence });
   }
-  return (result.stable ? ok : fail)(`${action}\n${message}\n--- 화면 ---\n${remember(result.els)}`);
+  return (result.stable ? ok : fail)(`${action}\n${message}\n${view(result.els, scr ?? "diff")}`.trimEnd());
 }
 
 /** 조작 뒤 대기: 조건이 있으면 조건 대기, 없으면 화면 안정 대기. 결과 문구 + 화면 요약. */
-async function after(action: string, cond?: { text?: string; id?: string; state?: "present" | "absent" | "enabled" | "disabled" }, timeoutMs?: number): Promise<Out> {
+async function after(action: string, cond?: { text?: string; id?: string; state?: "present" | "absent" | "enabled" | "disabled" }, timeoutMs?: number, scr?: ScreenMode): Promise<Out> {
   if (cond && (cond.text || cond.id)) {
     const r = await waitFor({ sel: { text: cond.text, id: cond.id }, state: cond.state ?? "present" }, timeoutMs ?? 8000);
     const head = `${action}\n대기 ${r.pass ? "PASS" : "FAIL"} ${cond.state ?? "present"} ${cond.text ?? `id=${cond.id}`} — ${r.why} (${r.elapsedMs}ms)`;
@@ -122,9 +136,9 @@ async function after(action: string, cond?: { text?: string; id?: string; state?
       const ev = await captureEvidence("wait-fail");
       logStep({ tool: "wait", result: "fail", ms: r.elapsedMs, expected: `${cond.state ?? "present"} ${cond.text ?? cond.id}`, actual: r.why, evidence: ev });
     }
-    return (r.pass ? ok : fail)(`${head}\n--- 화면 ---\n${remember(r.els)}`);
+    return (r.pass ? ok : fail)(`${head}\n${view(r.els, scr ?? (r.pass ? "none" : "diff"))}`.trimEnd());
   }
-  return afterSettle(action, await settle(300, timeoutMs ?? 3000));
+  return afterSettle(action, await settle(300, timeoutMs ?? 6000), scr);
 }
 
 // ---------------------------------------------------------------- tools: 진단·연결
@@ -163,20 +177,19 @@ tool(
 // ---------------------------------------------------------------- tools: 화면
 tool(
   "qa_read_screen",
-  "Summarize the current screen as one element per line: ref [type]text = value id=identifier (disabled) @x,y. Use refs such as r12 with qa_tap, qa_type, or qa_expect. Use filter to narrow the output. Preserve actual UI text in its original language.",
-  { filter: z.string().optional(), limit: z.number().optional() },
-  async ({ filter, limit }) => {
-    const all = await screen();
+  "Summarize the current screen as one element per line: ref [type]text = value id=identifier (disabled); add coords=true for @x,y. Use refs such as r12 with qa_tap, qa_type, or qa_expect. Use filter to narrow the output. Preserve actual UI text in its original language.",
+  { filter: z.string().optional(), limit: z.number().optional(), coords: z.boolean().optional().describe("Include @x,y coordinates (only needed for qa_tap_xy)") },
+  async ({ filter, limit, coords }) => {
+    const all = snapshot(await screen()).els;
     const els = filter ? all.filter((e) => `${e.label} ${e.value} ${e.id}`.includes(filter)) : all;
-    state.lastRefs = new Map(all.map((e) => [e.ref, e]));
-    return ok(summarize(els, limit ?? 60));
+    return ok(summarize(els, limit ?? 60, coords));
   },
 );
 
 tool(
   "qa_tap",
   "Find and tap an element using text, id, ref, or key (Flutter ValueKey string; requires Dart). Ambiguous matches return candidates without tapping; retry with ref/index. If accessibility text is not found, fall back to Flutter text/tooltip widgets. Danger words (deletion, account removal, logout, payment, etc.; defaults plus dangerWords in qa/qa.config.json) require allowDanger=true. After tapping, wait for waitFor (recommended), or screen stability if omitted, then return a screen summary.",
-  { ...sel, key: z.string().optional(), allowDanger: z.boolean().optional(), waitFor: condShape, timeoutMs: z.number().int().nonnegative().optional() },
+  { ...sel, key: z.string().optional(), allowDanger: z.boolean().optional(), waitFor: condShape, timeoutMs: z.number().int().nonnegative().optional(), screen: screenMode },
   async (a) => {
     const danger = (s: string) => !a.allowDanger && DANGER.some((d) => s.includes(d));
     if (a.text && danger(a.text)) return fail(`위험 동작으로 차단: "${a.text}" (allowDanger=true 필요)`);
@@ -184,20 +197,20 @@ tool(
       if (!state.dartConnected) return fail("key(ValueKey) 선택은 Dart 연결이 필요합니다 — qa_connect(logFile)");
       const r = await driver({ command: "tap", finderType: "ByValueKey", keyValueString: a.key, keyValueType: "String", timeout: "5000" });
       if (driverFailed(r)) return fail(`ValueKey "${a.key}" 탭 실패: ${r.slice(0, 200)}`);
-      return after(`탭: Flutter ValueKey "${a.key}"`, a.waitFor, a.timeoutMs);
+      return after(`탭: Flutter ValueKey "${a.key}"`, a.waitFor, a.timeoutMs, a.screen);
     }
     const els = await screen();
     const r = resolve(els, pick(a));
     if (r.el) {
       if (danger(r.el.label)) return fail(`위험 동작으로 차단: "${r.el.label}"`);
       await m("mobile_click_on_screen_at_coordinates", { x: cx(r.el), y: cy(r.el) });
-      return after(`탭: ${r.el.ref} "${labelOf(r.el)}"${r.el.disabled ? " (비활성 상태였음)" : ""}`, a.waitFor, a.timeoutMs);
+      return after(`탭: ${r.el.ref} "${labelOf(r.el)}"${r.el.disabled ? " (비활성 상태였음)" : ""}`, a.waitFor, a.timeoutMs, a.screen);
     }
     if (r.candidates) return fail(`${r.reason}\n${describeCandidates(r.candidates)}`);
     if (a.text && state.dartConnected) {
       let d = await driver({ command: "tap", finderType: "ByText", text: a.text, timeout: "3000" });
       if (driverFailed(d)) d = await driver({ command: "tap", finderType: "ByTooltipMessage", text: a.text, timeout: "3000" });
-      if (!driverFailed(d)) return after(`탭: Flutter 위젯 "${a.text}"`, a.waitFor, a.timeoutMs);
+      if (!driverFailed(d)) return after(`탭: Flutter 위젯 "${a.text}"`, a.waitFor, a.timeoutMs, a.screen);
     }
     state.lastRefs = new Map(els.map((e) => [e.ref, e]));
     return fail(`${r.reason}${a.text && !state.dartConnected ? " (Dart 미연결 — 위젯 대체 불가)" : ""}\n현재 화면:\n${summarize(els, 30)}`);
@@ -206,24 +219,24 @@ tool(
 
 tool(
   "qa_tap_xy",
-  "Tap coordinates for targets without a name or ID, such as unlabeled icons. Coordinates use the same space as @x,y from qa_read_screen. Danger-word blocking does not apply; inspect qa_screenshot first.",
-  { x: z.number(), y: z.number(), waitFor: condShape, timeoutMs: z.number().int().nonnegative().optional() },
-  async ({ x, y, waitFor: w, timeoutMs }) => {
+  "Tap coordinates for targets without a name or ID, such as unlabeled icons. Coordinates use the same space as @x,y from qa_read_screen(coords:true). Danger-word blocking does not apply; inspect qa_screenshot first.",
+  { x: z.number(), y: z.number(), waitFor: condShape, timeoutMs: z.number().int().nonnegative().optional(), screen: screenMode },
+  async ({ x, y, waitFor: w, timeoutMs, screen: scr }) => {
     await m("mobile_click_on_screen_at_coordinates", { x, y });
-    return after(`탭: (${x}, ${y})`, w, timeoutMs);
+    return after(`탭: (${x}, ${y})`, w, timeoutMs, scr);
   },
 );
 
 tool(
   "qa_type",
   "Enter text in a field selected by field (label, hint, or current value), id, or ref, then verify the exact accessibility value of that same field. Prefer id because keyboard appearance can move fields. Missing or masked values cannot be verified; matching text elsewhere does not count. With Dart, use enter_text; otherwise use the device keyboard. Preserve selectors and input text in their original language. timeoutMs controls verification polling (default 3000), not input retries.",
-  { field: z.string().optional(), id: z.string().optional(), ref: z.string().optional(), index: z.number().optional(), text: z.string(), timeoutMs: z.number().int().nonnegative().optional() },
-  async ({ field, id, ref, index, text, timeoutMs }) => {
+  { field: z.string().optional(), id: z.string().optional(), ref: z.string().optional(), index: z.number().optional(), text: z.string(), timeoutMs: z.number().int().nonnegative().optional(), screen: screenMode },
+  async ({ field, id, ref, index, text, timeoutMs, screen: scr }) => {
     const els = await screen();
     const inputs = els.filter((e) => /TextField|TextView|SearchField|EditText|SecureTextField/.test(e.type));
     let r = resolve(inputs, { text: field, id, ref, index });
     if (!r.el && !r.candidates) r = resolve(els, { text: field, id, ref, index });
-    if (!r.el) return fail(r.candidates ? `${r.reason}\n${describeCandidates(r.candidates)}` : `입력칸: ${r.reason}\n${summarize(els, 30)}`);
+    if (!r.el) return fail(r.candidates ? `${r.reason}\n${describeCandidates(r.candidates)}` : `입력칸: ${r.reason}\n${remember(els, 30)}`);
     const focused = await m("mobile_click_on_screen_at_coordinates", { x: r.el.x + Math.min(r.el.w >> 2, 60), y: cy(r.el) });
     if (focused.isError) return fail(`INPUT_FOCUS_FAILED: ${textOf(focused)}`);
     await sleep(800);
@@ -238,7 +251,7 @@ tool(
       via = "기기 키보드";
     }
     const w = await waitForInputValue(r.el, text, timeoutMs ?? 3000);
-    if (w.pass) return ok(`입력 완료(${via}): "${text}" (확인됨, ${w.elapsedMs}ms)\n--- 화면 ---\n${remember(w.els)}`);
+    if (w.pass) return ok(`입력 완료(${via}): "${text}" (확인됨, ${w.elapsedMs}ms)\n${view(w.els, scr ?? "none")}`.trimEnd());
     return fail(`${w.code}: ${w.why} (${via}, ${w.elapsedMs}ms). Inspect the field before retrying; device keyboard input may append text.\n${remember(w.els, 30)}`);
   },
 );
@@ -264,12 +277,12 @@ tool(
 tool(
   "qa_wait_until",
   "Wait for a target (text/id) to be present, absent, enabled, or disabled (default timeout: 10 seconds). With stable=true, require two identical consecutive screen reads. Return WAIT_TIMEOUT as an error if the screen does not stabilize; inspect the screen before retrying actions.",
-  { text: z.string().optional(), id: z.string().optional(), state: z.enum(["present", "absent", "enabled", "disabled"]).optional(), stable: z.boolean().optional(), timeoutMs: z.number().int().nonnegative().optional() },
-  async ({ text, id, state: st, stable, timeoutMs }) => {
+  { text: z.string().optional(), id: z.string().optional(), state: z.enum(["present", "absent", "enabled", "disabled"]).optional(), stable: z.boolean().optional(), timeoutMs: z.number().int().nonnegative().optional(), screen: screenMode },
+  async ({ text, id, state: st, stable, timeoutMs, screen: scr }) => {
     if (stable || (!text && !id)) {
-      return afterSettle("대기", await settle(200, timeoutMs ?? 10000));
+      return afterSettle("대기", await settle(200, timeoutMs ?? 10000), scr);
     }
-    return after("대기", { text, id, state: st ?? "present" }, timeoutMs ?? 10000);
+    return after("대기", { text, id, state: st ?? "present" }, timeoutMs ?? 10000, scr);
   },
 );
 
@@ -301,11 +314,11 @@ tool(
 tool(
   "qa_swipe",
   "Swipe to scroll. direction=up moves content upward to reveal content below. For pull to refresh, use direction=down and fromY near the top/header; starting over a card may be interpreted as a tap.",
-  { direction: z.enum(["up", "down", "left", "right"]), fromY: z.number().optional(), distance: z.number().optional(), waitFor: condShape, timeoutMs: z.number().int().nonnegative().optional() },
-  async ({ direction, fromY, distance, waitFor: w, timeoutMs }) => {
+  { direction: z.enum(["up", "down", "left", "right"]), fromY: z.number().optional(), distance: z.number().optional(), waitFor: condShape, timeoutMs: z.number().int().nonnegative().optional(), screen: screenMode },
+  async ({ direction, fromY, distance, waitFor: w, timeoutMs, screen: scr }) => {
     const x = fromY ? Math.round((await getScreenSize()).w / 2) : undefined;
     await m("mobile_swipe_on_screen", { direction, ...(fromY ? { x, y: fromY } : {}), ...(distance ? { distance } : {}) });
-    return after(`스와이프 ${direction}`, w, timeoutMs);
+    return after(`스와이프 ${direction}`, w, timeoutMs, scr);
   },
 );
 
@@ -314,10 +327,10 @@ tool("qa_screenshot", "Capture a screenshot image. Prefer qa_read_screen when te
   return { content: (r.content ?? []) as Out["content"] };
 });
 
-tool("qa_errors", "Inspect Flutter runtime errors when Dart is connected, plus the device crash list.", {}, async () => {
+tool("qa_errors", "Inspect Flutter runtime errors when Dart is connected, plus device crashes since this QA session started.", {}, async () => {
   const parts: string[] = [];
   if (state.dartConnected) parts.push("[Flutter 런타임 에러]\n" + textOf(await callChild(dart(), "get_runtime_errors", {})).slice(0, 2000));
-  parts.push("[기기 크래시]\n" + textOf(await m("mobile_list_crashes")).slice(0, 1000));
+  parts.push("[기기 크래시]\n" + (await recentCrashes()));
   return ok(parts.join("\n\n"));
 });
 
@@ -338,14 +351,14 @@ tool(
 tool(
   "qa_launch",
   "Launch an app, or restart it with restart=true. packageName is the bundle ID, e.g. com.example.app.dev. Wait for screen stability or the supplied waitFor condition after launch.",
-  { packageName: z.string(), restart: z.boolean().optional(), waitFor: condShape, timeoutMs: z.number().int().nonnegative().optional() },
-  async ({ packageName, restart, waitFor: w, timeoutMs }) => {
+  { packageName: z.string(), restart: z.boolean().optional(), waitFor: condShape, timeoutMs: z.number().int().nonnegative().optional(), screen: screenMode },
+  async ({ packageName, restart, waitFor: w, timeoutMs, screen: scr }) => {
     if (restart) await m("mobile_terminate_app", { packageName });
     await m("mobile_launch_app", { packageName });
     if (!w) {
-      return afterSettle(`실행: ${packageName}`, await settle(1500, timeoutMs ?? 8000));
+      return afterSettle(`실행: ${packageName}`, await settle(1500, timeoutMs ?? 8000), scr ?? "full");
     }
-    return after(`실행: ${packageName}`, w, timeoutMs);
+    return after(`실행: ${packageName}`, w, timeoutMs, scr);
   },
 );
 
@@ -380,7 +393,7 @@ tool(
   async ({ summary }) => {
     const r = endRun(summary);
     if (!r) return fail("실행 기록 중이 아님");
-    return ok(`실행 종료: PASS ${r.pass} · FAIL ${r.fail} · SKIP ${r.skip} · 도구 오류 ${r.toolFails}\n보고서: ${r.dir}/report.md`);
+    return ok(`실행 종료: PASS ${r.pass} · FAIL ${r.fail} · SKIP ${r.skip} · 요소 못 찾음 ${r.notFounds}(접근성 트리에 대상 없음 — 앱 오류 아님) · 도구 오류 ${r.toolFails}\n보고서: ${r.dir}/report.md`);
   },
 );
 

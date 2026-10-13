@@ -354,6 +354,9 @@ xcrun simctl openurl <udid> 'myscheme://open?…'
 ### 4-5. 토큰을 아끼는 요령
 - 화면 확인은 `qa_screenshot`(이미지) 대신 `qa_read_screen`(텍스트). 필요한 부분만 `filter`
 - 검증은 `qa_expect` 한 줄(PASS/FAIL)
+- 조작 뒤 응답은 기본으로 **바뀐 부분만** 돌려줍니다(`screen: "diff"`) — [화면 응답](#화면-응답) 참고. 나타날 화면을 알면 `waitFor` 를 주세요. 대기가 통과하면 화면 요약 없이 결과 한 줄만 옵니다
+- `qa_read_screen` 은 `coords: true` 일 때만 `@x,y` 좌표를 붙입니다(좌표는 `qa_tap_xy` 에만 필요)
+- `report.md` 에 응답 크기(글자 수·이미지 수)가 표시돼 실행끼리 비교할 수 있습니다
 - 이미지는 레이아웃·색처럼 **눈으로 봐야 하는 것**에만
 
 ---
@@ -383,8 +386,17 @@ xcrun simctl openurl <udid> 'myscheme://open?…'
 후보가 여럿이면 **누르지 않고 후보 목록**(ref·위치)을 돌려줍니다 — 같은 이름의 "삭제" 버튼이 두 개인 화면에서 엉뚱한 걸 누르지 않도록.
 
 ### 대기
-- 조작 도구(`qa_tap`·`qa_tap_xy`·`qa_swipe`·`qa_launch`)는 `waitFor: {text|id, state}` + `timeoutMs` 를 주면 **그 조건이 될 때까지** 기다립니다. 없으면 **화면이 안정될 때까지**(연속 두 번 같은 화면, 기본 최대 3초·앱 실행은 별도 시간 제한) 기다립니다 — 고정 대기 없음.
+- 조작 도구(`qa_tap`·`qa_tap_xy`·`qa_swipe`·`qa_launch`)는 `waitFor: {text|id, state}` + `timeoutMs` 를 주면 **그 조건이 될 때까지** 기다립니다. 없으면 **화면이 안정될 때까지**(연속 두 번 같은 화면, 기본 최대 6초(실기기는 화면 읽기 한 번에 약 1초)·앱 실행은 별도 시간 제한) 기다립니다 — 고정 대기 없음.
 - `qa_expect(..., timeoutMs)`: 조건이 될 때까지 재확인. `qa_wait_until`: 로딩 사라짐(absent)·버튼 활성(enabled)·화면 안정(`stable: true`) 대기.
+
+### 화면 응답
+
+조작 도구(`qa_tap`·`qa_tap_xy`·`qa_type`·`qa_swipe`·`qa_launch`·`qa_wait_until`)는 `screen: "diff" | "full" | "none"` 을 받습니다.
+
+- `diff`(기본): 직전에 보여 준 화면 대비 변경분만 — `+` 추가, `-` 사라짐, `~` 값·상태 변경. 변화가 없으면 한 줄. 화면 대부분이 새것이면(화면 이동·페이지 스크롤) 전체 화면으로 바꾸고 ref 를 다시 매깁니다.
+- 화면에 남아 있는 요소는 **ref 가 유지**됩니다. 스크롤·키보드로 화면 전체가 밀려도 마찬가지이고, 이때 머리줄에 `화면 이동 y-106` 처럼 이동량이 표시됩니다. 이동 뒤 `qa_tap_xy` 를 쓰려면 좌표를 다시 읽으세요.
+- iOS 키보드는 `⌨ 키보드 열림 — return 키: r72 [Button]검색 id=Search` 한 줄로 접어서 키들이 응답을 채우지 않게 합니다.
+- 기본값: 통과한 `waitFor`·확인된 `qa_type` 은 `none`, `waitFor` 없는 `qa_launch` 는 `full`.
 
 ### 검증과 실패 복구
 
@@ -399,17 +411,17 @@ xcrun simctl openurl <udid> 'myscheme://open?…'
 | `qa_doctor` | `logFile?`, `dtdUri?` | 환경 진단 표(Node·mobile-mcp·기기·조작 에이전트·화면 읽기·식별자 유무·Dart·flutter run 로그·DTD·flutter_driver) + 지금 가능한 기능 + 복구 방법 |
 | `qa_connect` | `logFile?`, `dtdUri?`, `device?` | 기기 선택. (Flutter) DTD 연결 후 `set_frame_sync false`. 네이티브·다른 회사 앱은 `logFile` 없이 |
 | `qa_apps` | `filter?` | 설치된 앱 이름·번들 ID 검색 |
-| `qa_launch` | `packageName`, `restart?`, `waitFor?`, `timeoutMs?` | 앱 실행(재실행) → 안정/조건 대기 → 화면 요약 |
-| `qa_read_screen` | `filter?`, `limit?`(60) | `ref [종류]텍스트 = 값 id=식별자 (비활성) @x,y` 형식 요약 |
-| `qa_tap` | 선택자, `key?`, `allowDanger?`, `waitFor?`, `timeoutMs?` | 선택자로 탭(못 찾으면 Flutter 텍스트·툴팁 대체). 위험 단어 차단. 대기 후 화면 요약 |
-| `qa_tap_xy` | `x`, `y`, `waitFor?`, `timeoutMs?` | 좌표 탭(이름·id 없는 아이콘). 위험 차단 미적용 |
-| `qa_type` | `field?`/`id?`/`ref?`, `index?`, `text`, `timeoutMs?`(3000) | 입력칸 탭 → 입력(Dart `enter_text` 또는 기기 키보드) → 값 확인 |
+| `qa_launch` | `packageName`, `restart?`, `waitFor?`, `timeoutMs?`, `screen?` | 앱 실행(재실행) → 안정/조건 대기 → 화면 요약 |
+| `qa_read_screen` | `filter?`, `limit?`(60), `coords?` | `ref [종류]텍스트 = 값 id=식별자 (비활성)` 형식 요약. `coords: true` 면 `@x,y` 추가 |
+| `qa_tap` | 선택자, `key?`, `allowDanger?`, `waitFor?`, `timeoutMs?`, `screen?` | 선택자로 탭(못 찾으면 Flutter 텍스트·툴팁 대체). 위험 단어 차단. 대기 후 화면 요약 |
+| `qa_tap_xy` | `x`, `y`, `waitFor?`, `timeoutMs?`, `screen?` | 좌표 탭(이름·id 없는 아이콘). 위험 차단 미적용 |
+| `qa_type` | `field?`/`id?`/`ref?`, `index?`, `text`, `timeoutMs?`(3000), `screen?` | 입력칸 탭 → 입력(Dart `enter_text` 또는 기기 키보드) → 값 확인 |
 | `qa_expect` | 선택자, `state?`, `timeoutMs?` | `PASS/FAIL` 한 줄. 실행 기록 중 FAIL 이면 증거 자동 저장 |
-| `qa_wait_until` | `text?`/`id?`, `state?`, `stable?`, `timeoutMs?`(10000) | 조건·화면 안정 대기 |
+| `qa_wait_until` | `text?`/`id?`, `state?`, `stable?`, `timeoutMs?`(10000), `screen?` | 조건·화면 안정 대기 |
 | `qa_dismiss_system` | 없음 | 규칙대로 방해 창 닫기(기본 한·영·일 + 프로젝트 규칙) |
-| `qa_swipe` | `direction`, `fromY?`, `distance?`, `waitFor?`, `timeoutMs?` | 스와이프(시작 x 는 기기 화면 가운데) |
+| `qa_swipe` | `direction`, `fromY?`, `distance?`, `waitFor?`, `timeoutMs?`, `screen?` | 스와이프(시작 x 는 기기 화면 가운데) |
 | `qa_screenshot` | 없음 | 이미지 |
-| `qa_errors` | 없음 | Flutter 런타임 에러(Dart 연결 시) + 기기 크래시 목록 |
+| `qa_errors` | 없음 | Flutter 런타임 에러(Dart 연결 시) + 이 QA 세션 시작 이후의 기기 크래시 |
 | `qa_run_start` | `name`, `scenario?`, `app?`, `appVersion?`, `dir?`, `reportLanguage?` | 실행 기록 시작 → 아래 폴더 생성 |
 | `qa_step` | `title`, `expected?`, `result`(pass/fail/skip), `actual?`, `note?` | 단계 판정 기록. fail 이면 증거 저장 |
 | `qa_run_end` | `summary?` | `report.md` 생성, PASS/FAIL 수와 경로 반환 |
@@ -419,10 +431,12 @@ xcrun simctl openurl <udid> 'myscheme://open?…'
 ```
 qa/runs/20260928-112000-TODO-002/
 ├── meta.json        기기·앱·버전·git 브랜치/커밋(미커밋 여부)·Dart 연결 여부
-├── steps.jsonl      모든 도구 호출(도구·인자·결과·ms) + qa_step 판정
-├── report.md        요약(PASS/FAIL/SKIP·도구 오류) + 단계 표(기대·실제·ms·증거)
+├── steps.jsonl      모든 도구 호출(도구·인자·결과·ms·응답 크기) + qa_step 판정
+├── report.md        요약(PASS/FAIL/SKIP·요소 못 찾음·도구 오류, 응답 크기) + 단계 표(기대·실제·ms·증거)
 └── evidence/        실패 시: 003-expect-저장.png · .elements.txt(화면 요소 원본) · .errors.txt(런타임 에러·크래시)
 ```
+리포트 분류: ❌ FAIL 은 실패한 `qa_step`·`qa_expect`, 🔍 **요소 못 찾음**은 접근성 트리에 대상이 없던 경우(앱 오류 아님 — 스크린샷으로 확인), ⚠️ 도구 오류는 그 밖의 경우(화면 안정 대기 시간 초과, 후보가 여러 개인 선택자 등). 조작 직후의 대기 실패는 한 줄(`qa_tap → wait`)로 합칩니다.
+
 대화에는 요약과 경로만 돌아옵니다(토큰 절약). 위치는 `QA_RUNS_DIR` 또는 설정 파일 `runsDir` 로 변경.
 
 ### 보고서 언어
