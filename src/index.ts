@@ -63,7 +63,7 @@ const size = (o: Out) => ({
   images: o.content.filter((c) => c.type === "image").length,
 });
 
-const server = new McpServer({ name: "mobile-qa", version: "0.5.0" }, { instructions: SERVER_INSTRUCTIONS });
+const server = new McpServer({ name: "mobile-qa", version: "0.6.0" }, { instructions: SERVER_INSTRUCTIONS });
 registerGuidance(server);
 
 /** 도구 등록 + 실행 기록(실행 중일 때) + 예외를 도구 오류로 변환. */

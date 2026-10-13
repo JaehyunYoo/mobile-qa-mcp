@@ -22,8 +22,8 @@ AI agent ── mobile-qa-mcp ─┬─ mobile-mcp      ── device (accessibi
                            └─ dart mcp-server ── app (flutter_driver · widgets · errors)
 ```
 
-> Status: 0.5.0. The underlying servers have been verified on a physical iPhone (iOS 26) and simulators.
-> New 0.5.0 features (diagnostics, conditional waits, ref/id selectors, and run recording) have only passed offline unit checks; **physical-device validation is still pending**.
+> Status: 0.6.0 (mobile-mcp 1.0.10). Diagnostics, conditional waits, ref/id selectors, run recording, and the 0.6.0 screen-diff responses have been verified on a physical iPhone (iOS 26.6.1) with a native app.
+> **Not yet validated in 0.6.0:** Android devices, and Dart-dependent Flutter features (`enter_text` input, ValueKey taps).
 >
 > This README is the default English documentation. The bundled skill, server instructions, workflow prompts, tool descriptions, and scenario guides are maintained in English. Agents are instructed to write explanations, scenarios, and reports in the user's requested language. Some runtime tool messages remain in Korean. Examples that target Korean app text retain the original labels; always match the text actually shown in your app.
 

@@ -1,6 +1,6 @@
 {
   "name": "mobile-qa-mcp",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Mobile app QA MCP server for iOS and Android, with shared device tools and optional Flutter/Dart capabilities.",
   "type": "module",
   "files": [

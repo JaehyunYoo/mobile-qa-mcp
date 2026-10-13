@@ -85,7 +85,7 @@ export type ToolResult = {
 };
 
 async function spawnClient(name: string, command: string, args: string[], cwd?: string): Promise<Client> {
-  const client = new Client({ name: `mobile-qa/${name}`, version: "0.5.0" });
+  const client = new Client({ name: `mobile-qa/${name}`, version: "0.6.0" });
   await client.connect(new StdioClientTransport({ command, args, cwd, stderr: "ignore" }));
   return client;
 }

@@ -24,8 +24,8 @@ AI 에이전트 ── mobile-qa-mcp ─┬─ mobile-mcp      ── 기기 (�
                               └─ dart mcp-server ── 앱 (flutter_driver · 위젯 · 에러)
 ```
 
-> 상태: 0.5.0. 두 내부 서버의 동작은 실기기(iPhone, iOS 26)와 시뮬레이터에서 검증했습니다.
-> 0.5.0 의 새 기능(환경 진단·조건 대기·ref/id 선택·실행 기록)은 오프라인 단위 확인만 했고, **실기기 검증은 아직**입니다.
+> 상태: 0.6.0 (mobile-mcp 1.0.10). 환경 진단·조건 대기·ref/id 선택·실행 기록과 0.6.0 의 화면 변경분 응답을 실기기(iPhone, iOS 26.6.1)의 네이티브 앱으로 검증했습니다.
+> **0.6.0 에서 아직 검증하지 않은 것:** Android 기기, Dart 가 필요한 Flutter 기능(`enter_text` 입력, ValueKey 탭).
 
 ---
 
